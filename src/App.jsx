@@ -269,11 +269,12 @@ function PageHeader({ title, onBack, action }) {
 // BOTTOM NAV
 // ─────────────────────────────────────────────────────────────────────────────
 const BOTTOM_NAV = [
-  { id: "dashboard", icon: "🏠", label: "Dashboard" },
-  { id: "objectifs", icon: "▲",  label: "Objectifs" },
+  { id: "dashboard", icon: "🏠", label: "Home" },
+  { id: "todo",      icon: "□",  label: "Todo" },
   { id: "habitudes", icon: "○",  label: "Habitudes" },
   { id: "workperf",  icon: "⏱", label: "WorkPerf" },
   { id: "daily",     icon: "✦",  label: "Daily" },
+  { id: "objectifs", icon: "▲",  label: "Objectifs" },
 ];
 
 function BottomNav({ current, onNav }) {
@@ -874,7 +875,7 @@ function TaskChip({ item, onDone, onDelete }) {
   );
 }
 
-function TodoModule({ onBack }) {
+function TodoModule() {
   const [todos, setTodos]         = useState(loadTodos);
   const [tab, setTab]             = useState("focus");
   const [showModal, setShowModal] = useState(false);
@@ -921,7 +922,7 @@ function TodoModule({ onBack }) {
 
   return (
     <div>
-      <PageHeader title="□ Todo" onBack={onBack} />
+      <PageHeader title="□ Todo" />
 
       {/* Tab bar */}
       <div style={{position:"sticky",top:57,zIndex:10,background:"rgba(13,13,26,0.96)",backdropFilter:"blur(20px)",borderBottom:`1px solid ${C.border}`,padding:"10px 16px"}}>
@@ -1848,7 +1849,7 @@ export default function App() {
         {module === "habitudes" && <HabitudesModule />}
         {module === "workperf"  && <WorkPerfModule />}
         {module === "daily"     && <DailyPaperModule />}
-        {module === "todo"      && <TodoModule onBack={() => setModule("dashboard")} />}
+        {module === "todo"      && <TodoModule />}
         {module === "logs"      && <LogsModule onBack={() => setModule("dashboard")} />}
       </div>
       <BottomNav current={module} onNav={setModule} />
