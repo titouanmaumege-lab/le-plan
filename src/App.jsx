@@ -348,6 +348,109 @@ function HabitChip({ habit, done, onToggle, animating }) {
   );
 }
 
+// ── MonthCalendar ──
+function MonthCalendar() {
+  const {todos, getProjectsForCalendar, getMemosForDate} = useTodos();
+  const now = new Date();
+  const [year, setYear]   = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+  const [showMemos, setShowMemos]     = useState(true);
+  const [showWaiting, setShowWaiting] = useState(true);
+  const [showProjets, setShowProjets] = useState(true);
+
+  const today = todayStr();
+  const MONTH_NAMES = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+  const DAY_LABELS  = ["L","M","M","J","V","S","D"];
+
+  const firstDay = new Date(year, month, 1);
+  const totalDays = new Date(year, month+1, 0).getDate();
+  const startDow = (firstDay.getDay()+6)%7; // Mon=0
+
+  const pad = n => String(n).padStart(2,"0");
+  const dateStr = d => `${year}-${pad(month+1)}-${pad(d)}`;
+
+  const prevMonth = () => { if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1); };
+  const nextMonth = () => { if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1); };
+  const goToday   = () => { setYear(now.getFullYear()); setMonth(now.getMonth()); };
+
+  const projetsThisMonth = getProjectsForCalendar(month, year);
+
+  const projBars = projetsThisMonth.map(p => {
+    const s = new Date(p.dateDebut+"T12:00:00");
+    const e = new Date(p.dateFin+"T12:00:00");
+    const startD = s.getFullYear()===year&&s.getMonth()===month ? s.getDate() : 1;
+    const endD   = e.getFullYear()===year&&e.getMonth()===month ? e.getDate() : totalDays;
+    return {...p, startD, endD};
+  });
+
+  const cells = [];
+  for(let i=0;i<startDow;i++) cells.push(null);
+  for(let d=1;d<=totalDays;d++) cells.push(d);
+
+  return (
+    <div style={{background:C.surface2,borderRadius:18,border:`1px solid ${C.border}`,padding:16,marginTop:8}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <button onClick={prevMonth} style={{background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",padding:"4px 8px"}}>‹</button>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:14,fontWeight:700,color:C.text}}>{MONTH_NAMES[month]} {year}</span>
+          {(year!==now.getFullYear()||month!==now.getMonth())&&(
+            <button onClick={goToday} style={{fontSize:10,color:C.accent,background:C.accentBg,border:`1px solid ${C.accent}44`,borderRadius:999,padding:"2px 8px",fontFamily:"inherit",cursor:"pointer"}}>Aujourd'hui</button>
+          )}
+        </div>
+        <button onClick={nextMonth} style={{background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",padding:"4px 8px"}}>›</button>
+      </div>
+
+      {/* Filter toggles */}
+      <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+        {[
+          [showMemos,    setShowMemos,    "📅 Mémos",   "#6366f1"],
+          [showWaiting,  setShowWaiting,  "⏳ Waiting", "#f59e0b"],
+          [showProjets,  setShowProjets,  "🔴 Projets", C.red   ],
+        ].map(([on,set,label,c])=>(
+          <button key={label} onClick={()=>set(v=>!v)} style={{padding:"4px 10px",borderRadius:999,border:`1px solid ${on?c:C.border}`,background:on?c+"22":"transparent",color:on?c:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer"}}>{label}</button>
+        ))}
+      </div>
+
+      {/* Day-of-week header */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
+        {DAY_LABELS.map((d,i)=>(
+          <div key={i} style={{textAlign:"center",fontSize:10,color:C.faint,padding:"2px 0"}}>{d}</div>
+        ))}
+      </div>
+
+      {/* Grid */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+        {cells.map((d,i)=>{
+          if(!d) return <div key={`e${i}`}/>;
+          const ds = dateStr(d);
+          const isToday = ds===today;
+          const memos    = showMemos   ? getMemosForDate(ds) : [];
+          const waiting  = showWaiting ? todos.filter(t=>t.gtd==="waiting"&&t.dateAssignee===ds&&!t.done) : [];
+          const myProjets= showProjets ? projBars.filter(p=>p.startD<=d&&p.endD>=d) : [];
+          const hasItems = memos.length||waiting.length||myProjets.length;
+
+          return (
+            <div key={ds} style={{minHeight:36,borderRadius:8,padding:"3px 2px",background:isToday?"rgba(139,92,246,0.15)":hasItems?"rgba(255,255,255,0.03)":"transparent",border:isToday?`1px solid ${C.accent}55`:"1px solid transparent",position:"relative",textAlign:"center"}}>
+              <div style={{fontSize:11,fontWeight:isToday?700:400,color:isToday?C.accent:C.muted,marginBottom:2}}>{d}</div>
+              {myProjets.map(p=>{
+                const sc=SPHERES[p.sphere]?.c||C.accent;
+                return <div key={p.id} style={{fontSize:8,background:sc+"33",color:sc,borderRadius:3,padding:"1px 3px",marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>;
+              })}
+              {memos.map(m=>(
+                <div key={m.id} style={{fontSize:8,background:"#6366f133",color:"#6366f1",borderRadius:3,padding:"1px 3px",marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📝</div>
+              ))}
+              {waiting.map(w=>(
+                <div key={w.id} style={{fontSize:8,background:"#f59e0b33",color:"#f59e0b",borderRadius:3,padding:"1px 3px",marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>⏳</div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ onNav }) {
   const t = todayStr();
   const [habits, setHabits]     = useState(() => getLS("lp_habits", []));
@@ -385,9 +488,9 @@ function Dashboard({ onNav }) {
 
   const addTodo = () => {
     if (!todoText.trim()) return;
-    const item = { id: uid(), name: todoText.trim(), gtd: "inbox", statut: "ideation", matrice: null, domaine: null, done: false, createdAt: new Date().toISOString() };
+    const item = { id: uid(), name: todoText.trim(), gtd: "inbox", done: false, createdAt: new Date().toISOString() };
     const u = [...todos, item];
-    setTodos(u); setLS("lp_todos", u); setTodoText(""); setQAction(null);
+    setTodos(u); setLS("leplan_todos", u); setTodoText(""); setQAction(null);
   };
 
   const addObj = () => {
@@ -625,6 +728,11 @@ function Dashboard({ onNav }) {
             }
           </div>
         )}
+
+        {/* CALENDAR */}
+        <div style={{marginTop:8}}>
+          <MonthCalendar />
+        </div>
       </div>
     </div>
   );
@@ -816,109 +924,291 @@ function ObjectifsModule() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TODO — GTD
+// TODO — GTD v2 + CALENDAR
 // ─────────────────────────────────────────────────────────────────────────────
-const GTD_CATS = {
-  inbox:     { label: "📥 Inbox",       c: C.muted },
-  projet:    { label: "🔴 Projet",      c: C.red },
-  memo:      { label: "📝 Mémo",        c: "#6366f1" },
-  waiting:   { label: "⏳ Waiting For", c: C.amber },
-  someday:   { label: "💭 Someday",     c: C.faint },
-  highlight: { label: "⚡ Highlight",   c: C.accent },
-};
-const TD_DOM = {
-  business: { label: "💼 Business", c: "#8b5cf6" },
+const SPHERES = {
+  business: { label: "💸 Business", c: "#8b5cf6" },
   master:   { label: "📚 Master",   c: "#3b82f6" },
   sport:    { label: "⚡ Sport",    c: "#10b981" },
   perso:    { label: "👁 Perso",    c: "#f59e0b" },
-  pro:      { label: "🌐 Pro",      c: "#ec4899" },
+  pro:      { label: "🧑‍💻 Pro",    c: "#ec4899" },
 };
-const TD_STATUTS = {
-  ideation:    { label: "Idéation",    c: C.faint },
+const MATRICES = {
+  ui:   { label: "🔴 Urgent · Important",     short: "UI" },
+  uni:  { label: "🟡 Urgent · Secondaire",    short: "U·S" },
+  nui:  { label: "🔵 Important · Pas urgent", short: "I·PU" },
+  nuni: { label: "⚫ Ni urgent ni important",  short: "—" },
+};
+const PROJ_STATUTS = {
   a_planifier: { label: "À planifier", c: C.muted },
-  planifie:    { label: "Planifié",    c: "#3b82f6" },
   en_cours:    { label: "En cours",    c: C.accent },
   termine:     { label: "Terminé",     c: C.green },
 };
-const TD_MAT = {
-  ui:   { label: "🔴 Urgent + Important",    short: "UI" },
-  uni:  { label: "🟡 Urgent − Important",    short: "U−I" },
-  nui:  { label: "🔵 Important − Urgent",    short: "I−U" },
-  nuni: { label: "⚫ Ni urgent ni important", short: "—" },
-};
-const migrateTodo = raw => {
+const migrateOneTodo = raw => {
   if (!raw) return null;
-  if ("name" in raw && "gtd" in raw) return raw;
+  // already new format
+  if (raw.gtd && ("createdAt" in raw) && !("text" in raw) && !("domaine" in raw)) return raw;
+  // old format
+  const gtdMap = { projet:"projet", memo:"memo", someday:"someday", waiting:"waiting", highlight:"inbox", inbox:"inbox" };
   return {
-    id: raw.id || uid(), name: raw.text || "",
-    gtd: raw.type === "projet" ? "projet" : raw.type === "memo" ? "memo" : raw.type === "someday" ? "someday" : "inbox",
-    statut: raw.status === "done" ? "termine" : raw.status === "doing" ? "en_cours" : "a_planifier",
-    matrice: null, domaine: null, done: raw.status === "done",
-    createdAt: raw.date ? raw.date + "T00:00:00.000Z" : new Date().toISOString(),
+    id: raw.id || uid(),
+    name: raw.name || raw.text || "",
+    gtd: gtdMap[raw.gtd || raw.type] || "inbox",
+    sphere: raw.sphere || raw.domaine || undefined,
+    matrice: raw.matrice || undefined,
+    statut: raw.statut === "termine" || raw.status === "done" ? "termine" : raw.statut === "en_cours" || raw.status === "doing" ? "en_cours" : "a_planifier",
+    sousTaches: raw.sousTaches || [],
+    done: raw.done || raw.status === "done" || false,
+    createdAt: raw.createdAt || (raw.date ? raw.date + "T00:00:00.000Z" : new Date().toISOString()),
   };
 };
-const loadTodos = () => (getLS("lp_todos", []) || []).map(migrateTodo).filter(Boolean);
+const loadTodos = () => {
+  const stored = getLS("leplan_todos", null) || getLS("lp_todos", []);
+  return (stored || []).map(migrateOneTodo).filter(Boolean);
+};
 
-function TaskChip({ item, onDone, onDelete }) {
-  const dc = item.domaine ? (TD_DOM[item.domaine]?.c || C.border) : C.border;
+// ── useTodos hook ──
+function useTodos() {
+  const [todos, setTodosState] = useState(loadTodos);
+  const save = d => { setTodosState(d); setLS("leplan_todos", d); };
+  const addTodo      = o => { const t={id:uid(),name:"",gtd:"inbox",done:false,createdAt:new Date().toISOString(),...o}; save([...todos,t]); return t; };
+  const updateTodo   = (id,p) => save(todos.map(t=>t.id===id?{...t,...p}:t));
+  const deleteTodo   = id => save(todos.filter(t=>t.id!==id));
+  const toggleDone   = id => save(todos.map(t=>t.id===id?{...t,done:!t.done}:t));
+  const classifyInbox= (id,p) => updateTodo(id,p);
+  const getByGTD     = g => todos.filter(t=>t.gtd===g);
+  const getByMatrice = m => todos.filter(t=>t.matrice===m&&!t.done);
+  const getBySphere  = s => todos.filter(t=>t.sphere===s);
+  const getProjectsForCalendar = (month,year) => todos.filter(t=>{
+    if(t.gtd!=="projet"||!t.dateDebut||!t.dateFin) return false;
+    const s=new Date(t.dateDebut+"T12:00:00"), e=new Date(t.dateFin+"T12:00:00");
+    return s<=new Date(year,month+1,0) && e>=new Date(year,month,1);
+  });
+  const getMemosForDate = date => todos.filter(t=>t.gtd==="memo"&&t.dateAssignee===date&&!t.done);
+  return {todos,addTodo,updateTodo,deleteTodo,toggleDone,classifyInbox,getByGTD,getByMatrice,getBySphere,getProjectsForCalendar,getMemosForDate};
+}
+
+// ── ProjectCard ──
+function ProjectCard({item, todos, onUpdate, onDelete, onToggleDone}) {
+  const [expanded, setExpanded] = useState(false);
+  const [newSubName, setNewSubName] = useState("");
+  const sc = SPHERES[item.sphere]?.c || C.border;
+  const st = PROJ_STATUTS[item.statut] || PROJ_STATUTS.a_planifier;
+  const mat = MATRICES[item.matrice];
+  const subs = item.sousTaches || [];
+  const doneSubs = subs.filter(s=>s.done);
   const today = todayStr();
-  const dlc = !item.deadline ? null : item.deadline < today ? C.red : item.deadline === today ? C.amber : C.muted;
+  const over = item.dateFin && item.dateFin < today && !item.done;
+  const dateFinBadge = item.dateFin
+    ? (item.dateFinType==="deadline"
+        ? <span style={{fontSize:11,color:over?C.red:C.muted}}>🔴 Deadline · {item.dateFin}</span>
+        : <span style={{fontSize:11,color:"#3b82f6"}}>🔵 Due · {item.dateFin}</span>)
+    : null;
+  const addSub = () => {
+    if(!newSubName.trim()) return;
+    onUpdate(item.id, {sousTaches:[...subs,{id:uid(),name:newSubName.trim(),done:false}]});
+    setNewSubName("");
+  };
   return (
-    <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,minHeight:52,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${dc}`,transition:TR}}>
-      <div style={{flex:1}}>
-        <div style={{fontSize:14,fontWeight:500,color:C.text}}>{item.name}</div>
-        {item.deadline&&<span style={{fontSize:11,color:dlc}}>📅 {item.deadline}</span>}
+    <div style={{marginBottom:10,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`4px solid ${sc}`,borderRadius:16,overflow:"hidden",opacity:item.done?0.45:1}}>
+      <div style={{padding:"14px 16px"}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:600,color:item.done?C.muted:C.text,textDecoration:item.done?"line-through":"none",marginBottom:6,lineHeight:1.35}}>{item.name}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:4}}>
+              {mat&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:C.surface3,color:C.muted,border:`1px solid ${C.border}`}}>{mat.label}</span>}
+              {item.sphere&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:sc+"22",color:sc}}>{SPHERES[item.sphere]?.label}</span>}
+              <span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:st.c+"22",color:st.c}}>{st.label}</span>
+            </div>
+            {item.dateDebut&&item.dateFin
+              ? <div style={{fontSize:11,color:C.muted}}>Du {item.dateDebut} au {item.dateFin}</div>
+              : dateFinBadge&&<div style={{marginTop:2}}>{dateFinBadge}</div>
+            }
+          </div>
+          <span onClick={()=>onToggleDone(item.id)} style={{fontSize:20,cursor:"pointer",color:item.done?C.green:C.borderMid,flexShrink:0,marginTop:2}}>{item.done?"●":"○"}</span>
+          <span onClick={()=>onDelete(item.id)} style={{fontSize:13,cursor:"pointer",color:C.faint,flexShrink:0,marginTop:4}}>✕</span>
+        </div>
+        {subs.length>0&&(
+          <div style={{marginTop:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+              <div style={{flex:1,height:3,borderRadius:2,background:"rgba(139,92,246,0.1)"}}>
+                <div style={{height:"100%",width:`${doneSubs.length/subs.length*100}%`,background:sc,borderRadius:2,transition:"width 0.4s ease"}}/>
+              </div>
+              <span style={{fontSize:11,color:C.muted,flexShrink:0}}>{doneSubs.length}/{subs.length}</span>
+              <span onClick={()=>setExpanded(x=>!x)} style={{fontSize:11,color:C.accent,cursor:"pointer",flexShrink:0}}>{expanded?"▲":"▼"}</span>
+            </div>
+          </div>
+        )}
+        {subs.length===0&&<div onClick={()=>setExpanded(x=>!x)} style={{marginTop:8,fontSize:12,color:C.faint,cursor:"pointer"}}>+ Sous-tâche</div>}
       </div>
-      <button onClick={onDone} style={{width:28,height:28,borderRadius:"50%",flexShrink:0,border:`2px solid ${C.borderMid}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:14}}>○</button>
-      <span onClick={onDelete} style={{fontSize:13,color:C.faint,cursor:"pointer"}}>✕</span>
+      {expanded&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"10px 16px"}}>
+          {subs.map(s=>(
+            <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid rgba(139,92,246,0.08)`,opacity:s.done?0.5:1}}>
+              <span onClick={()=>onUpdate(item.id,{sousTaches:subs.map(x=>x.id===s.id?{...x,done:!x.done}:x)})} style={{fontSize:16,cursor:"pointer",color:s.done?C.green:C.borderMid}}>{s.done?"●":"○"}</span>
+              <span style={{fontSize:13,color:C.text,flex:1,textDecoration:s.done?"line-through":"none"}}>{s.name}</span>
+              <span onClick={()=>onUpdate(item.id,{sousTaches:subs.filter(x=>x.id!==s.id)})} style={{fontSize:12,cursor:"pointer",color:C.faint}}>✕</span>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <Input value={newSubName} onChange={setNewSubName} onKeyDown={e=>e.key==="Enter"&&addSub()} placeholder="Nouvelle sous-tâche..." style={{flex:1,minHeight:36,padding:"6px 12px",fontSize:13}}/>
+            <Btn onClick={addSub} variant="ghost" style={{padding:"6px 14px",fontSize:12,minHeight:36}}>+</Btn>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+// ── ClarifyModal ──
+function ClarifyModal({item, onSave, onClose}) {
+  const [form, setForm] = useState({
+    gtd: item.gtd==="inbox"?"":item.gtd, name:item.name,
+    sphere:item.sphere||null, matrice:item.matrice||null,
+    dateDebut:item.dateDebut||"", dateFin:item.dateFin||"",
+    dateFinType:item.dateFinType||"duedate", statut:item.statut||"a_planifier",
+    dateAssignee:item.dateAssignee||"", waitingFor:item.waitingFor||"", waitingNote:item.waitingNote||"",
+  });
+  const set = p => setForm(f=>({...f,...p}));
+  const canConfirm = form.gtd && form.name.trim() &&
+    (form.gtd!=="projet" || (form.sphere&&form.matrice&&form.dateFin)) &&
+    (form.gtd!=="memo"   || form.dateAssignee) &&
+    (form.gtd!=="waiting"|| form.waitingFor.trim());
+  const handleSave = () => {
+    if(!canConfirm) return;
+    const u={gtd:form.gtd,name:form.name,sphere:form.sphere||undefined};
+    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin,dateFinType:form.dateFinType,statut:form.statut,sousTaches:item.sousTaches||[]});
+    else if(form.gtd==="memo") Object.assign(u,{dateAssignee:form.dateAssignee});
+    else if(form.gtd==="waiting") Object.assign(u,{waitingFor:form.waitingFor,waitingNote:form.waitingNote||undefined});
+    onSave(u); onClose();
+  };
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
+      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,margin:"0 auto",background:C.surface,borderRadius:"24px 24px 0 0",border:`1px solid ${C.border}`,padding:20,paddingBottom:"calc(20px + env(safe-area-inset-bottom))",maxHeight:"88vh",overflowY:"auto"}}>
+        <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>Classifier cette tâche</div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:20}}>{item.name}</div>
+        <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Quel type ?</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}}>
+          {[["projet","🔴 Projet",C.red],["memo","📝 Mémo","#6366f1"],["waiting","⏳ Waiting For",C.amber],["someday","💭 Someday",C.faint]].map(([k,l,c])=>(
+            <button key={k} onClick={()=>set({gtd:k})} style={{padding:14,borderRadius:14,border:`1px solid ${form.gtd===k?c:C.border}`,background:form.gtd===k?c+"22":C.surface2,color:form.gtd===k?c:C.muted,fontSize:14,fontFamily:"inherit",textAlign:"center",cursor:"pointer",transition:TR}}>{l}</button>
+          ))}
+        </div>
+        {form.gtd&&(<>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Nom</div>
+            <Input value={form.name} onChange={v=>set({name:v})} placeholder="Nom de la tâche..."/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Sphère{form.gtd==="projet"?" *":""}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {Object.entries(SPHERES).map(([k,v])=>(
+                <button key={k} onClick={()=>set({sphere:form.sphere===k?null:k})} style={{padding:"6px 12px",borderRadius:999,border:`1px solid ${form.sphere===k?v.c:C.border}`,background:form.sphere===k?v.c+"22":"transparent",color:form.sphere===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
+              ))}
+            </div>
+          </div>
+          {form.gtd==="projet"&&(<>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Matrice *</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {Object.entries(MATRICES).map(([k,v])=>(
+                  <button key={k} onClick={()=>set({matrice:form.matrice===k?null:k})} style={{padding:"10px",borderRadius:12,border:`1px solid ${form.matrice===k?C.accent:C.border}`,background:form.matrice===k?C.accentBg:C.surface2,color:form.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              <div>
+                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date début</div>
+                <input type="date" value={form.dateDebut} onChange={e=>set({dateDebut:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date fin *</div>
+                <input type="date" value={form.dateFin} onChange={e=>set({dateFin:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              {[["deadline","🔴 Deadline"],["duedate","🔵 Due Date"]].map(([k,l])=>(
+                <button key={k} onClick={()=>set({dateFinType:k})} style={{flex:1,padding:9,borderRadius:10,border:`1px solid ${form.dateFinType===k?C.accent:C.border}`,background:form.dateFinType===k?C.accentBg:"transparent",color:form.dateFinType===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Statut</div>
+              <div style={{display:"flex",gap:6}}>
+                {Object.entries(PROJ_STATUTS).map(([k,v])=>(
+                  <button key={k} onClick={()=>set({statut:k})} style={{flex:1,padding:8,borderRadius:10,border:`1px solid ${form.statut===k?v.c:C.border}`,background:form.statut===k?v.c+"22":"transparent",color:form.statut===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
+                ))}
+              </div>
+            </div>
+          </>)}
+          {form.gtd==="memo"&&(
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date assignée *</div>
+              <input type="date" value={form.dateAssignee} onChange={e=>set({dateAssignee:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+          )}
+          {form.gtd==="waiting"&&(<>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Qui ? *</div>
+              <Input value={form.waitingFor} onChange={v=>set({waitingFor:v})} placeholder="Nom de la personne ou entité..."/>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Note (optionnel)</div>
+              <Input value={form.waitingNote} onChange={v=>set({waitingNote:v})} placeholder="Contexte..."/>
+            </div>
+          </>)}
+          <Btn onClick={handleSave} variant="accent" disabled={!canConfirm} style={{width:"100%",marginTop:8}}>Confirmer</Btn>
+        </>)}
+      </div>
+    </div>
+  );
+}
+
+// ── TodoModule ──
 function TodoModule() {
-  const [todos, setTodos]         = useState(loadTodos);
-  const [tab, setTab]             = useState("focus");
-  const [showModal, setShowModal] = useState(false);
-  const [modalMode, setModalMode] = useState("fast");
-  const [mForm, setMForm]         = useState({ name:"", gtd:"inbox", domaine:null, matrice:null });
-  const [clarifyId, setClarifyId] = useState(null);
-  const [expanded, setExpanded]   = useState(new Set());
-  const [domFilter, setDomFilter] = useState("all");
-  const [somedayQ, setSomedayQ]   = useState("");
-  const [inboxText, setInboxText] = useState("");
-
-  const save       = d => { setTodos(d); setLS("lp_todos", d); };
-  const addItem    = o => { const t={id:uid(),name:"",gtd:"inbox",statut:"ideation",matrice:null,domaine:null,done:false,createdAt:new Date().toISOString(),...o}; save([...todos,t]); };
-  const updateItem = (id,p) => save(todos.map(t=>t.id===id?{...t,...p}:t));
-  const deleteItem = id => save(todos.filter(t=>t.id!==id));
-  const toggleDone = id => save(todos.map(t=>t.id===id?{...t,done:!t.done}:t));
-
-  const active   = todos.filter(t=>!t.done);
-  const byGTD    = cat => active.filter(t=>t.gtd===cat);
-  const byMat    = q   => active.filter(t=>t.matrice===q);
-  const clarifyItem = todos.find(t=>t.id===clarifyId);
-
-  const highlights  = byGTD("highlight");
-  const urgentImpt  = byMat("ui");
-  const importantNu = active.filter(t=>t.matrice==="nui"&&["en_cours","planifie"].includes(t.statut));
-  const waiting     = byGTD("waiting");
-  const projets     = todos.filter(t=>t.gtd==="projet");
-  const memos       = todos.filter(t=>t.gtd==="memo");
-  const filteredP   = domFilter==="all" ? projets : projets.filter(t=>t.domaine===domFilter);
-
-  const handleModalSubmit = () => {
-    if(!mForm.name.trim()) return;
-    addItem({name:mForm.name.trim(),gtd:modalMode==="fast"?"inbox":mForm.gtd,domaine:mForm.domaine,matrice:mForm.matrice});
-    setMForm({name:"",gtd:"inbox",domaine:null,matrice:null}); setShowModal(false);
-  };
-  const captureInbox = () => {
-    if(!inboxText.trim()) return;
-    addItem({name:inboxText.trim(),gtd:"inbox"});
-    setInboxText("");
-  };
+  const {todos,addTodo,updateTodo,deleteTodo,toggleDone,classifyInbox,getByGTD,getByMatrice} = useTodos();
+  const [tab, setTab]               = useState("focus");
+  const [showCapture, setShowCapture]= useState(false);
+  const [captureMode, setCaptureMode]= useState("fast");
+  const [capForm, setCapForm]       = useState({name:"",gtd:"inbox",sphere:null,matrice:null,dateDebut:"",dateFin:"",dateFinType:"duedate",statut:"a_planifier",dateAssignee:"",waitingFor:"",waitingNote:""});
+  const [clarifyId, setClarifyId]   = useState(null);
+  const [sphereFilter, setSphereFilter] = useState("all");
+  const [somedayQ, setSomedayQ]     = useState("");
+  const [inboxText, setInboxText]   = useState("");
+  const [somedayDetail, setSomedayDetail] = useState(null);
 
   const today = todayStr();
+  const clarifyItem = todos.find(t=>t.id===clarifyId);
+  const scC = s => SPHERES[s]?.c || C.border;
+  const dfBadge = item => {
+    if(!item.dateFin) return null;
+    const over=item.dateFin<today&&!item.done;
+    return item.dateFinType==="deadline"
+      ? <span style={{fontSize:11,color:over?C.red:C.muted}}>🔴 Deadline · {item.dateFin}</span>
+      : <span style={{fontSize:11,color:"#3b82f6"}}>🔵 Due · {item.dateFin}</span>;
+  };
+
+  const handleCapture = () => {
+    if(!capForm.name.trim()) return;
+    const o={name:capForm.name.trim()};
+    if(captureMode==="fast") { o.gtd="inbox"; }
+    else {
+      o.gtd=capForm.gtd||"inbox"; o.sphere=capForm.sphere||undefined;
+      if(capForm.gtd==="projet") Object.assign(o,{matrice:capForm.matrice,dateDebut:capForm.dateDebut||undefined,dateFin:capForm.dateFin||undefined,dateFinType:capForm.dateFinType,statut:capForm.statut,sousTaches:[]});
+      else if(capForm.gtd==="memo") o.dateAssignee=capForm.dateAssignee||undefined;
+      else if(capForm.gtd==="waiting") Object.assign(o,{waitingFor:capForm.waitingFor,waitingNote:capForm.waitingNote||undefined});
+    }
+    addTodo(o);
+    setCapForm({name:"",gtd:"inbox",sphere:null,matrice:null,dateDebut:"",dateFin:"",dateFinType:"duedate",statut:"a_planifier",dateAssignee:"",waitingFor:"",waitingNote:""});
+    setShowCapture(false);
+  };
+
   const TABS=[{id:"focus",label:"Focus"},{id:"projets",label:"Projets"},{id:"inbox",label:"Inbox"},{id:"someday",label:"Someday"}];
+  const urgentImpt  = getByMatrice("ui").filter(t=>t.gtd==="projet").sort((a,b)=>(a.dateFin||"9999")>(b.dateFin||"9999")?1:-1);
+  const imptNonUrg  = getByMatrice("nui").filter(t=>t.gtd==="projet"&&t.statut==="en_cours");
+  const waitingItems= getByGTD("waiting").filter(t=>!t.done);
+  const memosToday  = todos.filter(t=>t.gtd==="memo"&&t.dateAssignee===today&&!t.done);
+  const projets     = todos.filter(t=>t.gtd==="projet");
+  const memos       = todos.filter(t=>t.gtd==="memo"&&!t.done);
+  const filteredP   = (sphereFilter==="all"?projets:projets.filter(t=>t.sphere===sphereFilter)).sort((a,b)=>(a.dateFin||"9999")>(b.dateFin||"9999")?1:-1);
 
   return (
     <div>
@@ -929,7 +1219,7 @@ function TodoModule() {
         <div style={{display:"flex",gap:6}}>
           {TABS.map(({id,label})=>{
             const isActive=tab===id;
-            const cnt=id==="inbox"?byGTD("inbox").length:id==="someday"?byGTD("someday").length:null;
+            const cnt=id==="inbox"?getByGTD("inbox").length:id==="someday"?getByGTD("someday").length:null;
             return (
               <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:"8px 4px",borderRadius:999,border:"none",background:isActive?GRAD:"transparent",color:isActive?"#fff":C.muted,fontSize:13,fontFamily:"inherit",fontWeight:isActive?600:400,boxShadow:isActive?GLOW_SM:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
                 {label}
@@ -945,58 +1235,60 @@ function TodoModule() {
         {/* ── FOCUS ── */}
         {tab==="focus"&&(
           <div>
-            {highlights.length>0&&(
+            {urgentImpt.length>0&&(
               <div style={{marginBottom:20}}>
-                <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>⚡ Highlight</div>
-                {highlights.map(item=>(
-                  <div key={item.id} style={{padding:16,borderRadius:16,marginBottom:8,background:"linear-gradient(135deg,rgba(139,92,246,0.1),rgba(99,102,241,0.06))",border:"2px solid rgba(139,92,246,0.4)"}}>
-                    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:15,fontWeight:700,color:C.text}}>{item.name}</div>
-                        <div style={{fontSize:11,color:C.muted,marginTop:4}}>La chose la plus importante du moment</div>
-                      </div>
-                      <span onClick={()=>deleteItem(item.id)} style={{fontSize:13,color:C.faint,cursor:"pointer"}}>✕</span>
-                    </div>
-                  </div>
+                <div style={{fontSize:10,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>🔴 À faire maintenant</div>
+                {urgentImpt.slice(0,5).map(item=>(
+                  <ProjectCard key={item.id} item={item} todos={todos} onUpdate={updateTodo} onDelete={deleteTodo} onToggleDone={toggleDone}/>
                 ))}
               </div>
             )}
 
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:10,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>🔴 À faire maintenant</div>
-              {urgentImpt.length===0
-                ? <div style={{fontSize:13,color:C.faint,padding:"16px 0"}}>Pas de feux à éteindre 🎉</div>
-                : urgentImpt.slice(0,5).map(item=><TaskChip key={item.id} item={item} onDone={()=>toggleDone(item.id)} onDelete={()=>deleteItem(item.id)}/>)
-              }
-            </div>
+            {imptNonUrg.length>0&&(
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:10,color:"#3b82f6",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>🔵 Important · Pas urgent</div>
+                <div style={{fontSize:10,color:C.faint,fontStyle:"italic",marginBottom:10}}>Ce qui construit ton avenir</div>
+                {imptNonUrg.slice(0,5).map(item=>(
+                  <ProjectCard key={item.id} item={item} todos={todos} onUpdate={updateTodo} onDelete={deleteTodo} onToggleDone={toggleDone}/>
+                ))}
+              </div>
+            )}
 
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:10,color:"#3b82f6",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>🔵 Important</div>
-              <div style={{fontSize:10,color:C.faint,fontStyle:"italic",marginBottom:10}}>Ce qui construit ton avenir</div>
-              {importantNu.length===0
-                ? <div style={{fontSize:13,color:C.faint,padding:"8px 0"}}>—</div>
-                : importantNu.slice(0,5).map(item=><TaskChip key={item.id} item={item} onDone={()=>toggleDone(item.id)} onDelete={()=>deleteItem(item.id)}/>)
-              }
-            </div>
-
-            {waiting.length>0&&(
+            {waitingItems.length>0&&(
               <div style={{marginBottom:20}}>
                 <div style={{fontSize:10,color:C.amber,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>⏳ Waiting For</div>
-                {waiting.map(item=>(
-                  <div key={item.id} style={{padding:"10px 14px",borderRadius:12,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,opacity:0.75}}>
+                {waitingItems.map(item=>(
+                  <div key={item.id} style={{padding:"12px 14px",borderRadius:14,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:"3px solid #f59e0b",opacity:item.done?0.45:1}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <div style={{flex:1}}>
                         <div style={{fontSize:14,color:C.muted}}>{item.name}</div>
                         {item.waitingFor&&<div style={{fontSize:11,color:C.faint,marginTop:3}}>Attendu de : {item.waitingFor}</div>}
+                        {item.waitingNote&&<div style={{fontSize:11,color:C.faint}}>{item.waitingNote}</div>}
                       </div>
-                      <span onClick={()=>deleteItem(item.id)} style={{fontSize:13,color:C.faint,cursor:"pointer"}}>✕</span>
+                      <span onClick={()=>toggleDone(item.id)} style={{fontSize:16,cursor:"pointer",color:item.done?C.green:C.borderMid}}>{item.done?"●":"○"}</span>
+                      <span onClick={()=>deleteTodo(item.id)} style={{fontSize:13,color:C.faint,cursor:"pointer"}}>✕</span>
                     </div>
                   </div>
                 ))}
               </div>
             )}
 
-            {highlights.length===0&&urgentImpt.length===0&&importantNu.length===0&&waiting.length===0&&(
+            {memosToday.length>0&&(
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:10,color:"#6366f1",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>📝 Mémos aujourd'hui</div>
+                {memosToday.map(item=>(
+                  <div key={item.id} style={{padding:"12px 14px",borderRadius:14,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:"3px solid #6366f1"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:13,color:C.text,flex:1}}>{item.name}</span>
+                      <span onClick={()=>toggleDone(item.id)} style={{fontSize:16,cursor:"pointer",color:item.done?C.green:C.borderMid}}>{item.done?"●":"○"}</span>
+                      <span onClick={()=>deleteTodo(item.id)} style={{fontSize:13,color:C.faint,cursor:"pointer"}}>✕</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {urgentImpt.length===0&&imptNonUrg.length===0&&waitingItems.length===0&&memosToday.length===0&&(
               <div style={{textAlign:"center",padding:"60px 0"}}>
                 <div style={{fontSize:32,marginBottom:12}}>🎯</div>
                 <div style={{fontSize:15,fontWeight:600,color:C.text,marginBottom:6}}>Focus vide</div>
@@ -1010,64 +1302,20 @@ function TodoModule() {
         {tab==="projets"&&(
           <div>
             <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:16}}>
-              {[["all","Tous",C.accent],...Object.entries(TD_DOM).map(([k,v])=>[k,v.label,v.c])].map(([k,l,c])=>(
-                <button key={k} onClick={()=>setDomFilter(k)} style={{flexShrink:0,padding:"6px 14px",borderRadius:999,border:`1px solid ${domFilter===k?c:C.border}`,background:domFilter===k?c+"22":C.surface2,color:domFilter===k?c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
+              {[["all","Tous",C.accent],...Object.entries(SPHERES).map(([k,v])=>[k,v.label,v.c])].map(([k,l,c])=>(
+                <button key={k} onClick={()=>setSphereFilter(k)} style={{flexShrink:0,padding:"6px 14px",borderRadius:999,border:`1px solid ${sphereFilter===k?c:C.border}`,background:sphereFilter===k?c+"22":C.surface2,color:sphereFilter===k?c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
               ))}
             </div>
 
-            {filteredP.length===0&&<div style={{textAlign:"center",padding:"60px 0",fontSize:13,color:C.faint}}>Aucun projet. <span onClick={()=>setShowModal(true)} style={{color:C.accent,cursor:"pointer"}}>+ Créer</span></div>}
-
-            {filteredP.map(item=>{
-              const st=TD_STATUTS[item.statut]||TD_STATUTS.a_planifier;
-              const dc=item.domaine?TD_DOM[item.domaine]?.c||C.border:C.border;
-              const children=todos.filter(t=>t.parentId===item.id);
-              const doneChildren=children.filter(t=>t.done);
-              const isExp=expanded.has(item.id);
-              const toggleEx=()=>setExpanded(s=>{const n=new Set(s);n.has(item.id)?n.delete(item.id):n.add(item.id);return n;});
-              return (
-                <div key={item.id} style={{marginBottom:10,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`4px solid ${dc}`,borderRadius:16,overflow:"hidden",opacity:item.done?0.45:1}}>
-                  <div style={{padding:"14px 16px"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:children.length?6:0}}>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:14,fontWeight:600,color:item.done?C.muted:C.text,textDecoration:item.done?"line-through":"none"}}>{item.name}</div>
-                      </div>
-                      <span style={{fontSize:10,fontWeight:600,padding:"3px 8px",borderRadius:999,background:st.c+"22",color:st.c}}>{st.label}</span>
-                      <span onClick={()=>toggleDone(item.id)} style={{fontSize:18,cursor:"pointer",color:item.done?C.green:C.borderMid}}>{item.done?"●":"○"}</span>
-                      <span onClick={()=>deleteItem(item.id)} style={{fontSize:13,cursor:"pointer",color:C.faint}}>✕</span>
-                    </div>
-                    {children.length>0&&<div style={{marginBottom:6}}><ProgressBar value={doneChildren.length/children.length*100} height={4} color={dc}/><div style={{fontSize:11,color:C.muted,marginTop:4}}>{doneChildren.length}/{children.length} tâches</div></div>}
-                    {item.deadline&&<div style={{fontSize:11,color:item.deadline<today?C.red:C.muted,marginTop:4}}>📅 {item.deadline}</div>}
-                    {children.length>0&&<div onClick={toggleEx} style={{fontSize:12,color:C.accent,cursor:"pointer",marginTop:6}}>{isExp?"▲ Masquer":`▼ ${children.length} sous-tâche${children.length>1?"s":""}`}</div>}
-                  </div>
-                  {isExp&&children.length>0&&(
-                    <div style={{borderTop:`1px solid ${C.border}`,padding:"10px 16px"}}>
-                      {children.map(ch=>(
-                        <div key={ch.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.border}`,opacity:ch.done?0.5:1}}>
-                          <span onClick={()=>updateItem(ch.id,{done:!ch.done})} style={{fontSize:16,cursor:"pointer",color:ch.done?C.green:C.borderMid}}>{ch.done?"●":"○"}</span>
-                          <span style={{fontSize:13,color:C.text,flex:1,textDecoration:ch.done?"line-through":"none"}}>{ch.name}</span>
-                          <span onClick={()=>deleteItem(ch.id)} style={{fontSize:12,cursor:"pointer",color:C.faint}}>✕</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {memos.length>0&&(
-              <div style={{marginTop:24}}>
-                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>📝 Mémos</div>
-                {memos.map(item=>(
-                  <div key={item.id} style={{padding:"12px 14px",borderRadius:14,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:"3px solid #6366f1",opacity:item.done?0.45:1}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <span style={{fontSize:13,color:C.text,flex:1}}>{item.name}</span>
-                      <span onClick={()=>toggleDone(item.id)} style={{fontSize:16,cursor:"pointer",color:item.done?C.green:C.borderMid}}>{item.done?"●":"○"}</span>
-                      <span onClick={()=>deleteItem(item.id)} style={{fontSize:12,cursor:"pointer",color:C.faint}}>✕</span>
-                    </div>
-                  </div>
-                ))}
+            {filteredP.length===0&&(
+              <div style={{textAlign:"center",padding:"60px 0",fontSize:13,color:C.faint}}>
+                Aucun projet. <span onClick={()=>setShowCapture(true)} style={{color:C.accent,cursor:"pointer"}}>+ Créer</span>
               </div>
             )}
+
+            {filteredP.map(item=>(
+              <ProjectCard key={item.id} item={item} todos={todos} onUpdate={updateTodo} onDelete={deleteTodo} onToggleDone={toggleDone}/>
+            ))}
           </div>
         )}
 
@@ -1077,20 +1325,20 @@ function TodoModule() {
             <div style={{background:C.surface2,border:`1px solid ${C.borderMid}`,borderRadius:18,padding:16,marginBottom:20}}>
               <div style={{fontSize:11,color:C.accent,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>📥 Capture rapide</div>
               <div style={{display:"flex",gap:8}}>
-                <Input value={inboxText} onChange={setInboxText} onKeyDown={e=>e.key==="Enter"&&captureInbox()} placeholder="Capture une idée ou tâche..." style={{flex:1}}/>
-                <Btn onClick={captureInbox} variant="accent" style={{whiteSpace:"nowrap"}}>+ Ajouter</Btn>
+                <Input value={inboxText} onChange={setInboxText} onKeyDown={e=>{if(e.key==="Enter"&&inboxText.trim()){addTodo({name:inboxText.trim(),gtd:"inbox"});setInboxText("");}}} placeholder="Capture une idée ou tâche..." style={{flex:1}}/>
+                <Btn onClick={()=>{if(inboxText.trim()){addTodo({name:inboxText.trim(),gtd:"inbox"});setInboxText("");}}} variant="accent" style={{whiteSpace:"nowrap"}}>+ Ajouter</Btn>
               </div>
             </div>
-            {byGTD("inbox").length===0
+            {getByGTD("inbox").length===0
               ? <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Inbox zéro — David Allen serait fier.</div>
-              : byGTD("inbox").map(item=>(
+              : getByGTD("inbox").map(item=>(
                 <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`}}>
                   <div style={{flex:1}}>
                     <div style={{fontSize:14,color:C.text}}>{item.name}</div>
                     <span style={{fontSize:11,fontWeight:600,color:C.amber}}>À clarifier</span>
                   </div>
                   <Btn onClick={()=>setClarifyId(item.id)} variant="ghost" style={{fontSize:12,padding:"6px 12px",whiteSpace:"nowrap"}}>Clarifier →</Btn>
-                  <span onClick={()=>deleteItem(item.id)} style={{fontSize:14,color:C.faint,cursor:"pointer"}}>✕</span>
+                  <span onClick={()=>deleteTodo(item.id)} style={{fontSize:14,color:C.faint,cursor:"pointer"}}>✕</span>
                 </div>
               ))
             }
@@ -1101,20 +1349,20 @@ function TodoModule() {
         {tab==="someday"&&(
           <div>
             <div style={{marginBottom:16}}><Input value={somedayQ} onChange={setSomedayQ} placeholder="Rechercher..."/></div>
-            <div style={{fontSize:13,color:C.muted,marginBottom:16}}>💭 Un jour, peut-être... <span style={{color:C.faint}}>({byGTD("someday").length})</span></div>
-            {byGTD("someday").filter(t=>!somedayQ||t.name.toLowerCase().includes(somedayQ.toLowerCase())).length===0
+            <div style={{fontSize:13,color:C.muted,marginBottom:16}}>💭 Un jour, peut-être... <span style={{color:C.faint}}>({getByGTD("someday").length})</span></div>
+            {getByGTD("someday").filter(t=>!somedayQ||t.name.toLowerCase().includes(somedayQ.toLowerCase())).length===0
               ? <div style={{fontSize:13,color:C.faint,textAlign:"center",padding:"32px 0"}}>Aucune idée capturée.</div>
-              : byGTD("someday").filter(t=>!somedayQ||t.name.toLowerCase().includes(somedayQ.toLowerCase())).map(item=>(
-                <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,opacity:0.75}}>
+              : getByGTD("someday").filter(t=>!somedayQ||t.name.toLowerCase().includes(somedayQ.toLowerCase())).map(item=>(
+                <div key={item.id} onClick={()=>setSomedayDetail(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,opacity:0.8,cursor:"pointer"}}>
                   <div style={{flex:1}}>
                     <div style={{fontSize:14,color:C.muted}}>{item.name}</div>
                     <div style={{display:"flex",gap:8,marginTop:4}}>
-                      {item.domaine&&<span style={{fontSize:11,color:TD_DOM[item.domaine]?.c}}>{TD_DOM[item.domaine]?.label}</span>}
+                      {item.sphere&&<span style={{fontSize:11,color:SPHERES[item.sphere]?.c}}>{SPHERES[item.sphere]?.label}</span>}
                       <span style={{fontSize:11,color:C.faint}}>{item.createdAt?.slice(0,10)}</span>
                     </div>
                   </div>
-                  <Btn onClick={()=>updateItem(item.id,{gtd:"inbox"})} variant="ghost" style={{fontSize:11,padding:"5px 10px"}}>→ Activer</Btn>
-                  <span onClick={()=>deleteItem(item.id)} style={{fontSize:14,color:C.faint,cursor:"pointer"}}>✕</span>
+                  <Btn onClick={e=>{e.stopPropagation();updateTodo(item.id,{gtd:"inbox"});}} variant="ghost" style={{fontSize:11,padding:"5px 10px"}}>→ Activer</Btn>
+                  <span onClick={e=>{e.stopPropagation();deleteTodo(item.id);}} style={{fontSize:14,color:C.faint,cursor:"pointer"}}>✕</span>
                 </div>
               ))
             }
@@ -1123,42 +1371,60 @@ function TodoModule() {
       </div>
 
       {/* FAB */}
-      <button onClick={()=>{setModalMode("fast");setShowModal(true);}} style={{position:"fixed",bottom:"calc(80px + env(safe-area-inset-bottom))",right:20,width:52,height:52,borderRadius:"50%",background:GRAD,border:"none",color:"#fff",fontSize:24,cursor:"pointer",boxShadow:GLOW,zIndex:40,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+      <button onClick={()=>{setCaptureMode("fast");setShowCapture(true);}} style={{position:"fixed",bottom:"calc(80px + env(safe-area-inset-bottom))",right:20,width:52,height:52,borderRadius:"50%",background:GRAD,border:"none",color:"#fff",fontSize:24,cursor:"pointer",boxShadow:GLOW,zIndex:40,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
 
-      {/* QUICK ADD MODAL */}
-      {showModal&&(
-        <div onClick={()=>setShowModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
+      {/* QUICK CAPTURE MODAL */}
+      {showCapture&&(
+        <div onClick={()=>setShowCapture(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
           <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,margin:"0 auto",background:C.surface,borderRadius:"24px 24px 0 0",border:`1px solid ${C.border}`,padding:20,paddingBottom:"calc(20px + env(safe-area-inset-bottom))"}}>
-            <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:20}}>
-              {[["fast","⚡ Capture"],["full","Tâche complète"]].map(([m,l])=>(
-                <button key={m} onClick={()=>setModalMode(m)} style={{padding:"7px 16px",borderRadius:999,border:`1px solid ${modalMode===m?C.accent:C.border}`,background:modalMode===m?C.accentBg:"transparent",color:modalMode===m?C.accent:C.muted,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
+            <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:16}}>
+              {[["fast","⚡ Capture"],["full","Complet"]].map(([m,l])=>(
+                <button key={m} onClick={()=>setCaptureMode(m)} style={{padding:"7px 16px",borderRadius:999,border:`1px solid ${captureMode===m?C.accent:C.border}`,background:captureMode===m?C.accentBg:"transparent",color:captureMode===m?C.accent:C.muted,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
               ))}
             </div>
-            <Input autoFocus value={mForm.name} onChange={v=>setMForm(f=>({...f,name:v}))} onKeyDown={e=>e.key==="Enter"&&handleModalSubmit()} placeholder={modalMode==="fast"?"Capture une idée ou tâche...":"Nom de la tâche..."}/>
-            {modalMode==="full"&&(
+            <Input autoFocus value={capForm.name} onChange={v=>setCapForm(f=>({...f,name:v}))} onKeyDown={e=>e.key==="Enter"&&captureMode==="fast"&&handleCapture()} placeholder={captureMode==="fast"?"Capture une idée ou tâche...":"Nom de la tâche..."}/>
+
+            {captureMode==="full"&&(
               <div className="slide-up">
-                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"16px 0 8px"}}>Domaine</div>
+                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Type GTD</div>
                 <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-                  {Object.entries(TD_DOM).map(([k,v])=>(
-                    <button key={k} onClick={()=>setMForm(f=>({...f,domaine:f.domaine===k?null:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${mForm.domaine===k?v.c:C.border}`,background:mForm.domaine===k?v.c+"22":"transparent",color:mForm.domaine===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
+                  {[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["waiting","⏳ Waiting"],["someday","💭 Someday"]].map(([k,l])=>(
+                    <button key={k} onClick={()=>setCapForm(f=>({...f,gtd:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${capForm.gtd===k?C.accent:C.border}`,background:capForm.gtd===k?C.accentBg:"transparent",color:capForm.gtd===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
                   ))}
                 </div>
-                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"16px 0 8px"}}>Type GTD</div>
+                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Sphère</div>
                 <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-                  {[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["someday","💭 Someday"],["highlight","⚡ Highlight"],["waiting","⏳ Waiting"]].map(([k,l])=>(
-                    <button key={k} onClick={()=>setMForm(f=>({...f,gtd:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${mForm.gtd===k?C.accent:C.border}`,background:mForm.gtd===k?C.accentBg:"transparent",color:mForm.gtd===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
+                  {Object.entries(SPHERES).map(([k,v])=>(
+                    <button key={k} onClick={()=>setCapForm(f=>({...f,sphere:f.sphere===k?null:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${capForm.sphere===k?v.c:C.border}`,background:capForm.sphere===k?v.c+"22":"transparent",color:capForm.sphere===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
                   ))}
                 </div>
-                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"16px 0 8px"}}>Urgence / Importance</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:16}}>
-                  {Object.entries(TD_MAT).map(([k,v])=>(
-                    <button key={k} onClick={()=>setMForm(f=>({...f,matrice:f.matrice===k?null:k}))} style={{padding:"8px",borderRadius:12,border:`1px solid ${mForm.matrice===k?C.accent:C.border}`,background:mForm.matrice===k?C.accentBg:"transparent",color:mForm.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
-                  ))}
-                </div>
+                {capForm.gtd==="projet"&&(
+                  <div className="slide-up">
+                    <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Matrice</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                      {Object.entries(MATRICES).map(([k,v])=>(
+                        <button key={k} onClick={()=>setCapForm(f=>({...f,matrice:f.matrice===k?null:k}))} style={{padding:"8px",borderRadius:12,border:`1px solid ${capForm.matrice===k?C.accent:C.border}`,background:capForm.matrice===k?C.accentBg:"transparent",color:capForm.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {capForm.gtd==="memo"&&(
+                  <div style={{marginTop:12}}>
+                    <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date assignée</div>
+                    <input type="date" value={capForm.dateAssignee} onChange={e=>setCapForm(f=>({...f,dateAssignee:e.target.value}))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                  </div>
+                )}
+                {capForm.gtd==="waiting"&&(
+                  <div style={{marginTop:12}}>
+                    <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Attendu de</div>
+                    <Input value={capForm.waitingFor} onChange={v=>setCapForm(f=>({...f,waitingFor:v}))} placeholder="Nom de la personne..."/>
+                  </div>
+                )}
               </div>
             )}
+
             <div style={{marginTop:16}}>
-              <Btn onClick={handleModalSubmit} variant="accent" style={{width:"100%"}}>{modalMode==="fast"?"Capturer →":"Ajouter"}</Btn>
+              <Btn onClick={handleCapture} variant="accent" style={{width:"100%"}}>{captureMode==="fast"?"Capturer →":"Ajouter"}</Btn>
             </div>
           </div>
         </div>
@@ -1166,48 +1432,27 @@ function TodoModule() {
 
       {/* CLARIFY MODAL */}
       {clarifyItem&&(
-        <div onClick={()=>setClarifyId(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
-          <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,margin:"0 auto",background:C.surface,borderRadius:"24px 24px 0 0",border:`1px solid ${C.border}`,padding:20,paddingBottom:"calc(20px + env(safe-area-inset-bottom))"}}>
-            <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:16}}>Clarifier — {clarifyItem.name}</div>
-
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Quel type ?</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
-              {[["projet","🔴 Projet",C.red],["memo","📝 Mémo","#6366f1"],["waiting","⏳ Waiting",C.amber],["someday","💭 Someday",C.faint],["highlight","⚡ Highlight",C.accent],["projet","🔴 Projet",C.red]].filter((v,i,a)=>a.findIndex(x=>x[0]===v[0])===i).map(([k,l,c])=>(
-                <button key={k} onClick={()=>updateItem(clarifyId,{gtd:k})} style={{padding:"12px",borderRadius:14,border:`1px solid ${clarifyItem.gtd===k?c:C.border}`,background:clarifyItem.gtd===k?c+"22":C.surface2,color:clarifyItem.gtd===k?c:C.muted,fontSize:13,fontFamily:"inherit",textAlign:"center",cursor:"pointer"}}>{l}</button>
-              ))}
-            </div>
-
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Quel domaine ?</div>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
-              {Object.entries(TD_DOM).map(([k,v])=>(
-                <button key={k} onClick={()=>updateItem(clarifyId,{domaine:clarifyItem.domaine===k?null:k})} style={{padding:"6px 12px",borderRadius:999,border:`1px solid ${clarifyItem.domaine===k?v.c:C.border}`,background:clarifyItem.domaine===k?v.c+"22":"transparent",color:clarifyItem.domaine===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
-              ))}
-            </div>
-
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Quelle urgence ?</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
-              {Object.entries(TD_MAT).map(([k,v])=>(
-                <button key={k} onClick={()=>updateItem(clarifyId,{matrice:clarifyItem.matrice===k?null:k})} style={{padding:"10px",borderRadius:12,border:`1px solid ${clarifyItem.matrice===k?C.accent:C.border}`,background:clarifyItem.matrice===k?C.accentBg:C.surface2,color:clarifyItem.matrice===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
-              ))}
-            </div>
-
-            {clarifyItem.gtd==="waiting"&&(
-              <div style={{marginBottom:16}}>
-                <Input value={clarifyItem.waitingFor||""} onChange={v=>updateItem(clarifyId,{waitingFor:v})} placeholder="Attendu de (nom de la personne)..."/>
-              </div>
-            )}
-
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Statut</div>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
-              {Object.entries(TD_STATUTS).map(([k,v])=>(
-                <button key={k} onClick={()=>updateItem(clarifyId,{statut:k})} style={{padding:"6px 12px",borderRadius:999,border:`1px solid ${clarifyItem.statut===k?v.c:C.border}`,background:clarifyItem.statut===k?v.c+"22":"transparent",color:clarifyItem.statut===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
-              ))}
-            </div>
-
-            <Btn onClick={()=>setClarifyId(null)} variant="accent" style={{width:"100%"}}>Confirmer & Clarifier ✓</Btn>
-          </div>
-        </div>
+        <ClarifyModal item={clarifyItem} onSave={p=>{updateTodo(clarifyId,p);setClarifyId(null);}} onClose={()=>setClarifyId(null)}/>
       )}
+
+      {/* SOMEDAY DETAIL SHEET */}
+      {somedayDetail&&(()=>{
+        const item=todos.find(t=>t.id===somedayDetail);
+        if(!item) return null;
+        return (
+          <div onClick={()=>setSomedayDetail(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
+            <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,margin:"0 auto",background:C.surface,borderRadius:"24px 24px 0 0",border:`1px solid ${C.border}`,padding:20,paddingBottom:"calc(20px + env(safe-area-inset-bottom))"}}>
+              <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:8}}>{item.name}</div>
+              {item.sphere&&<div style={{fontSize:12,color:SPHERES[item.sphere]?.c,marginBottom:12}}>{SPHERES[item.sphere]?.label}</div>}
+              <div style={{fontSize:12,color:C.faint,marginBottom:20}}>Ajouté le {item.createdAt?.slice(0,10)}</div>
+              <div style={{display:"flex",gap:8}}>
+                <Btn onClick={()=>{updateTodo(item.id,{gtd:"inbox"});setSomedayDetail(null);}} variant="accent" style={{flex:1}}>→ Activer</Btn>
+                <Btn onClick={()=>{deleteTodo(item.id);setSomedayDetail(null);}} variant="ghost" style={{color:C.red,border:`1px solid ${C.red}44`}}>Supprimer</Btn>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
