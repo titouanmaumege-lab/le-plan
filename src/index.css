@@ -4,6 +4,97 @@
   padding: 0;
 }
 
-body {
-  font-family: system-ui, -apple-system, sans-serif;
+:root {
+  --bg-base: #0d0d1a;
+  --bg-surface: #12112a;
+  --bg-card: #1a1830;
+  --bg-card-hover: #201e38;
+  --border-subtle: rgba(139, 92, 246, 0.15);
+  --border-active: rgba(139, 92, 246, 0.5);
+  --accent: #8b5cf6;
+  --accent-2: #6366f1;
+  --accent-gradient: linear-gradient(135deg, #8b5cf6, #6366f1);
+  --accent-glow: 0 0 24px rgba(139, 92, 246, 0.35);
+  --accent-glow-sm: 0 0 12px rgba(139, 92, 246, 0.25);
+  --text-primary: #f1f0ff;
+  --text-secondary: #9391b5;
+  --text-muted: #524f72;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --orange: #f97316;
+  --radius-card: 18px;
+  --radius-btn: 12px;
+  --radius-pill: 999px;
+  --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+html, body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  overflow-x: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, textarea, select, button {
+  font-family: inherit;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:active {
+  transform: scale(0.96);
+}
+
+/* Hide scrollbars */
+::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; -ms-overflow-style: none; }
+
+/* Keyframes */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes habitPop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(139,92,246,0.2); }
+  50%       { box-shadow: 0 0 24px rgba(139,92,246,0.5); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in   { animation: fadeInUp 0.22s ease forwards; }
+.slide-up  { animation: slideUp 0.22s ease forwards; }
+.habit-pop { animation: habitPop 0.28s ease; }
