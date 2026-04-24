@@ -211,8 +211,8 @@ const Select = ({ value, options, onChange, style }) => (
   </select>
 );
 
-const Input = ({ value, onChange, onKeyDown, placeholder, style, type = "text" }) => (
-  <input type={type}
+const Input = ({ value, onChange, onKeyDown, placeholder, style, type = "text", autoFocus }) => (
+  <input type={type} autoFocus={autoFocus}
     value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}
     placeholder={placeholder}
     style={{
@@ -351,7 +351,7 @@ function Dashboard({ onNav }) {
   const t = todayStr();
   const [habits, setHabits]     = useState(() => getLS("lp_habits", []));
   const [sessions, setSessions]  = useState(() => getLS("lp_workperf", []));
-  const [todos, setTodos]        = useState(() => getLS("lp_todos", []));
+  const [todos, setTodos]        = useState(loadTodos);
   const [goals, setGoals]        = useState(() => getLS("lp_goals", NOTION_GOALS));
   const [highlight, setHighlight]= useState(() => getLS("lp_highlight", {}));
   const [editingHL, setEditingHL]= useState(false);
@@ -384,7 +384,8 @@ function Dashboard({ onNav }) {
 
   const addTodo = () => {
     if (!todoText.trim()) return;
-    const u = [...todos, { id: uid(), text: todoText.trim(), type: "projet", status: "todo", date: t }];
+    const item = { id: uid(), name: todoText.trim(), gtd: "inbox", statut: "ideation", matrice: null, domaine: null, done: false, createdAt: new Date().toISOString() };
+    const u = [...todos, item];
     setTodos(u); setLS("lp_todos", u); setTodoText(""); setQAction(null);
   };
 
@@ -398,8 +399,6 @@ function Dashboard({ onNav }) {
   const doneH = habits.filter(h => (h.logs || []).includes(t)).length;
   const todaySessions = sessions.filter(s => s.date === t);
   const deepToday = todaySessions.filter(s => s.type === "DEEP").reduce((a, s) => a + s.temps, 0);
-  const streak = calcStreak(habits);
-
   const pulseObjs = [
     ...(goals.trimestriel || []).map(o => ({ ...o, _level: "Trimestriel", _c: C.green })),
     ...(goals.mensuel || []).map(o => ({ ...o, _level: "Mensuel", _c: C.amber })),
@@ -548,7 +547,7 @@ function Dashboard({ onNav }) {
         </div>
 
         {/* STATS ROW */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
           <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, padding: "14px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
             <CircularProgress value={doneH} max={habits.length || 1} size={52} color={doneH === habits.length && habits.length > 0 ? C.green : C.accent} />
             <span style={{ fontSize: 11, color: C.muted, textAlign: "center" }}>Habitudes</span>
@@ -556,10 +555,6 @@ function Dashboard({ onNav }) {
           <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, padding: "14px 10px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: C.purple, lineHeight: 1 }}>{fmtMin(deepToday)}</div>
             <span style={{ fontSize: 11, color: C.muted, textAlign: "center" }}>Travail Deep</span>
-          </div>
-          <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, padding: "14px 10px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: C.amber, lineHeight: 1 }}>🔥 {streak}</div>
-            <span style={{ fontSize: 11, color: C.muted, textAlign: "center" }}>Série active</span>
           </div>
         </div>
 
@@ -820,95 +815,398 @@ function ObjectifsModule() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TODO (accessible via quick actions, not in bottom nav)
+// TODO — GTD
 // ─────────────────────────────────────────────────────────────────────────────
-const TODO_STATUSES = [
-  { id:"todo",  label:"À faire",  c:C.muted },
-  { id:"doing", label:"En cours", c:C.accent },
-  { id:"done",  label:"Fait",     c:C.green },
-];
-const STATUS_CYCLE = { todo:"doing", doing:"done", done:"todo" };
-const TODO_TABS = { projet:"Projets", memo:"Mémos", someday:"Someday" };
-const STATUS_ICONS = { todo:"○", doing:"◐", done:"●" };
+const GTD_CATS = {
+  inbox:     { label: "📥 Inbox",       c: C.muted },
+  projet:    { label: "🔴 Projet",      c: C.red },
+  memo:      { label: "📝 Mémo",        c: "#6366f1" },
+  waiting:   { label: "⏳ Waiting For", c: C.amber },
+  someday:   { label: "💭 Someday",     c: C.faint },
+  highlight: { label: "⚡ Highlight",   c: C.accent },
+};
+const TD_DOM = {
+  business: { label: "💼 Business", c: "#8b5cf6" },
+  master:   { label: "📚 Master",   c: "#3b82f6" },
+  sport:    { label: "⚡ Sport",    c: "#10b981" },
+  perso:    { label: "👁 Perso",    c: "#f59e0b" },
+  pro:      { label: "🌐 Pro",      c: "#ec4899" },
+};
+const TD_STATUTS = {
+  ideation:    { label: "Idéation",    c: C.faint },
+  a_planifier: { label: "À planifier", c: C.muted },
+  planifie:    { label: "Planifié",    c: "#3b82f6" },
+  en_cours:    { label: "En cours",    c: C.accent },
+  termine:     { label: "Terminé",     c: C.green },
+};
+const TD_MAT = {
+  ui:   { label: "🔴 Urgent + Important",    short: "UI" },
+  uni:  { label: "🟡 Urgent − Important",    short: "U−I" },
+  nui:  { label: "🔵 Important − Urgent",    short: "I−U" },
+  nuni: { label: "⚫ Ni urgent ni important", short: "—" },
+};
+const migrateTodo = raw => {
+  if (!raw) return null;
+  if ("name" in raw && "gtd" in raw) return raw;
+  return {
+    id: raw.id || uid(), name: raw.text || "",
+    gtd: raw.type === "projet" ? "projet" : raw.type === "memo" ? "memo" : raw.type === "someday" ? "someday" : "inbox",
+    statut: raw.status === "done" ? "termine" : raw.status === "doing" ? "en_cours" : "a_planifier",
+    matrice: null, domaine: null, done: raw.status === "done",
+    createdAt: raw.date ? raw.date + "T00:00:00.000Z" : new Date().toISOString(),
+  };
+};
+const loadTodos = () => (getLS("lp_todos", []) || []).map(migrateTodo).filter(Boolean);
 
-function TodoModule({ onBack }) {
-  const [todos, setTodos] = useState(() => getLS("lp_todos", []));
-  const [tab, setTab]     = useState("projet");
-  const [newText, setNewText] = useState("");
-  const save = d => { setTodos(d); setLS("lp_todos", d); };
-  const add  = () => { if (!newText.trim()) return; save([...todos,{id:uid(),text:newText.trim(),type:tab,status:"todo",date:todayStr()}]); setNewText(""); };
-  const cycle = id => save(todos.map(t => t.id===id?{...t,status:STATUS_CYCLE[t.status]}:t));
-  const remove= id => save(todos.filter(t => t.id!==id));
-  const items = todos.filter(t => t.type===tab);
-  const activeCnt = tp => todos.filter(t => t.type===tp&&t.status!=="done").length;
+function TaskChip({ item, onDone, onDelete }) {
+  const dc = item.domaine ? (TD_DOM[item.domaine]?.c || C.border) : C.border;
+  const today = todayStr();
+  const dlc = !item.deadline ? null : item.deadline < today ? C.red : item.deadline === today ? C.amber : C.muted;
   return (
-    <div>
-      <PageHeader title="◻ Todo" onBack={onBack} />
-      <div style={{ padding:"16px 16px 100px" }}>
-        <div style={{ display:"flex", gap:6, marginBottom:16, overflowX:"auto" }}>
-          {Object.entries(TODO_TABS).map(([id,label]) => {
-            const cnt=activeCnt(id); const active=tab===id;
-            return (
-              <button key={id} onClick={() => setTab(id)} style={{
-                flexShrink:0,padding:"8px 16px",borderRadius:999,border:`1px solid ${active?C.accent:C.border}`,
-                background:active?C.accentBg:C.surface2,color:active?C.accent:C.muted,
-                cursor:"pointer",fontSize:13,fontFamily:"inherit",fontWeight:active?600:400,display:"flex",alignItems:"center",gap:6,
-              }}>
-                {label}
-                {cnt>0&&<span style={{background:C.accentBg,color:C.accent,padding:"1px 7px",borderRadius:999,fontSize:11}}>{cnt}</span>}
-              </button>
-            );
-          })}
-        </div>
-        {tab==="projet" && (
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
-            {QUICK_ADDS.map(({label,prefix}) => (
-              <button key={label} onClick={() => setNewText(prefix)} style={{
-                padding:"6px 12px",borderRadius:999,border:`1px solid ${C.border}`,
-                background:C.surface2,color:C.muted,cursor:"pointer",fontSize:12,fontFamily:"inherit",
-              }}>{label}</button>
-            ))}
-          </div>
-        )}
-        <div style={{ display:"flex", gap:8, marginBottom:20 }}>
-          <Input value={newText} onChange={setNewText} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Nouvelle entrée..." />
-          <Btn onClick={add} variant="accent" style={{ whiteSpace:"nowrap" }}>+</Btn>
-        </div>
-        {tab==="projet"
-          ? TODO_STATUSES.map(st => {
-              const group=items.filter(t=>t.status===st.id);
-              return (
-                <div key={st.id} style={{ marginBottom:24 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-                    <div style={{ width:7,height:7,borderRadius:"50%",background:st.c }} />
-                    <span style={{ fontSize:11,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em" }}>{st.label} — {group.length}</span>
-                  </div>
-                  {group.length===0
-                    ? <div style={{fontSize:12,color:C.faint,paddingLeft:15}}>—</div>
-                    : group.map(t => <TodoItem key={t.id} item={t} onCycle={cycle} onDelete={remove} />)}
-                </div>
-              );
-            })
-          : (items.length===0
-              ? <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucune entrée.</div>
-              : items.map(t => <TodoItem key={t.id} item={t} onCycle={cycle} onDelete={remove} simple />))
-        }
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,minHeight:52,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${dc}`,transition:TR}}>
+      <div style={{flex:1}}>
+        <div style={{fontSize:14,fontWeight:500,color:C.text}}>{item.name}</div>
+        {item.deadline&&<span style={{fontSize:11,color:dlc}}>📅 {item.deadline}</span>}
       </div>
+      <button onClick={onDone} style={{width:28,height:28,borderRadius:"50%",flexShrink:0,border:`2px solid ${C.borderMid}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:14}}>○</button>
+      <span onClick={onDelete} style={{fontSize:13,color:C.faint,cursor:"pointer"}}>✕</span>
     </div>
   );
 }
 
-function TodoItem({ item, onCycle, onDelete, simple }) {
-  const st = TODO_STATUSES.find(s => s.id===item.status);
+function TodoModule({ onBack }) {
+  const [todos, setTodos]         = useState(loadTodos);
+  const [tab, setTab]             = useState("focus");
+  const [showModal, setShowModal] = useState(false);
+  const [modalMode, setModalMode] = useState("fast");
+  const [mForm, setMForm]         = useState({ name:"", gtd:"inbox", domaine:null, matrice:null });
+  const [clarifyId, setClarifyId] = useState(null);
+  const [expanded, setExpanded]   = useState(new Set());
+  const [domFilter, setDomFilter] = useState("all");
+  const [somedayQ, setSomedayQ]   = useState("");
+  const [inboxText, setInboxText] = useState("");
+
+  const save       = d => { setTodos(d); setLS("lp_todos", d); };
+  const addItem    = o => { const t={id:uid(),name:"",gtd:"inbox",statut:"ideation",matrice:null,domaine:null,done:false,createdAt:new Date().toISOString(),...o}; save([...todos,t]); };
+  const updateItem = (id,p) => save(todos.map(t=>t.id===id?{...t,...p}:t));
+  const deleteItem = id => save(todos.filter(t=>t.id!==id));
+  const toggleDone = id => save(todos.map(t=>t.id===id?{...t,done:!t.done}:t));
+
+  const active   = todos.filter(t=>!t.done);
+  const byGTD    = cat => active.filter(t=>t.gtd===cat);
+  const byMat    = q   => active.filter(t=>t.matrice===q);
+  const clarifyItem = todos.find(t=>t.id===clarifyId);
+
+  const highlights  = byGTD("highlight");
+  const urgentImpt  = byMat("ui");
+  const importantNu = active.filter(t=>t.matrice==="nui"&&["en_cours","planifie"].includes(t.statut));
+  const waiting     = byGTD("waiting");
+  const projets     = todos.filter(t=>t.gtd==="projet");
+  const memos       = todos.filter(t=>t.gtd==="memo");
+  const filteredP   = domFilter==="all" ? projets : projets.filter(t=>t.domaine===domFilter);
+
+  const handleModalSubmit = () => {
+    if(!mForm.name.trim()) return;
+    addItem({name:mForm.name.trim(),gtd:modalMode==="fast"?"inbox":mForm.gtd,domaine:mForm.domaine,matrice:mForm.matrice});
+    setMForm({name:"",gtd:"inbox",domaine:null,matrice:null}); setShowModal(false);
+  };
+  const captureInbox = () => {
+    if(!inboxText.trim()) return;
+    addItem({name:inboxText.trim(),gtd:"inbox"});
+    setInboxText("");
+  };
+
+  const today = todayStr();
+  const TABS=[{id:"focus",label:"Focus"},{id:"projets",label:"Projets"},{id:"inbox",label:"Inbox"},{id:"someday",label:"Someday"}];
+
   return (
-    <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderRadius:14, marginBottom:8, background:C.surface2, border:`1px solid ${C.border}`, borderLeft:`3px solid ${st?.c||C.border}`, opacity:item.status==="done"?0.4:1 }}>
-      {simple
-        ? <span style={{color:C.faint,fontSize:13}}>—</span>
-        : <span onClick={() => onCycle(item.id)} style={{ cursor:"pointer",color:st?.c,fontSize:18,flexShrink:0,minWidth:22 }}>{STATUS_ICONS[item.status]}</span>
-      }
-      <span style={{ flex:1,fontSize:14,textDecoration:item.status==="done"?"line-through":"none",color:C.text }}>{item.text}</span>
-      <span style={{ fontSize:11,color:C.muted,flexShrink:0 }}>{item.date}</span>
-      <span onClick={() => onDelete(item.id)} style={{ cursor:"pointer",color:C.muted,fontSize:14,flexShrink:0 }}>✕</span>
+    <div>
+      <PageHeader title="□ Todo" onBack={onBack} />
+
+      {/* Tab bar */}
+      <div style={{position:"sticky",top:57,zIndex:10,background:"rgba(13,13,26,0.96)",backdropFilter:"blur(20px)",borderBottom:`1px solid ${C.border}`,padding:"10px 16px"}}>
+        <div style={{display:"flex",gap:6}}>
+          {TABS.map(({id,label})=>{
+            const isActive=tab===id;
+            const cnt=id==="inbox"?byGTD("inbox").length:id==="someday"?byGTD("someday").length:null;
+            return (
+              <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:"8px 4px",borderRadius:999,border:"none",background:isActive?GRAD:"transparent",color:isActive?"#fff":C.muted,fontSize:13,fontFamily:"inherit",fontWeight:isActive?600:400,boxShadow:isActive?GLOW_SM:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                {label}
+                {cnt!=null&&cnt>0&&<span style={{fontSize:10,background:isActive?"rgba(255,255,255,0.25)":C.accentBg,color:isActive?"#fff":C.accent,borderRadius:999,padding:"1px 6px"}}>{cnt}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{padding:"16px 16px 120px"}}>
+
+        {/* ── FOCUS ── */}
+        {tab==="focus"&&(
+          <div>
+            {highlights.length>0&&(
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>⚡ Highlight</div>
+                {highlights.map(item=>(
+                  <div key={item.id} style={{padding:16,borderRadius:16,marginBottom:8,background:"linear-gradient(135deg,rgba(139,92,246,0.1),rgba(99,102,241,0.06))",border:"2px solid rgba(139,92,246,0.4)"}}>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:15,fontWeight:700,color:C.text}}>{item.name}</div>
+                        <div style={{fontSize:11,color:C.muted,marginTop:4}}>La chose la plus importante du moment</div>
+                      </div>
+                      <span onClick={()=>deleteItem(item.id)} style={{fontSize:13,color:C.faint,cursor:"pointer"}}>✕</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:10,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>🔴 À faire maintenant</div>
+              {urgentImpt.length===0
+                ? <div style={{fontSize:13,color:C.faint,padding:"16px 0"}}>Pas de feux à éteindre 🎉</div>
+                : urgentImpt.slice(0,5).map(item=><TaskChip key={item.id} item={item} onDone={()=>toggleDone(item.id)} onDelete={()=>deleteItem(item.id)}/>)
+              }
+            </div>
+
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:10,color:"#3b82f6",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>🔵 Important</div>
+              <div style={{fontSize:10,color:C.faint,fontStyle:"italic",marginBottom:10}}>Ce qui construit ton avenir</div>
+              {importantNu.length===0
+                ? <div style={{fontSize:13,color:C.faint,padding:"8px 0"}}>—</div>
+                : importantNu.slice(0,5).map(item=><TaskChip key={item.id} item={item} onDone={()=>toggleDone(item.id)} onDelete={()=>deleteItem(item.id)}/>)
+              }
+            </div>
+
+            {waiting.length>0&&(
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:10,color:C.amber,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>⏳ Waiting For</div>
+                {waiting.map(item=>(
+                  <div key={item.id} style={{padding:"10px 14px",borderRadius:12,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,opacity:0.75}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:14,color:C.muted}}>{item.name}</div>
+                        {item.waitingFor&&<div style={{fontSize:11,color:C.faint,marginTop:3}}>Attendu de : {item.waitingFor}</div>}
+                      </div>
+                      <span onClick={()=>deleteItem(item.id)} style={{fontSize:13,color:C.faint,cursor:"pointer"}}>✕</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {highlights.length===0&&urgentImpt.length===0&&importantNu.length===0&&waiting.length===0&&(
+              <div style={{textAlign:"center",padding:"60px 0"}}>
+                <div style={{fontSize:32,marginBottom:12}}>🎯</div>
+                <div style={{fontSize:15,fontWeight:600,color:C.text,marginBottom:6}}>Focus vide</div>
+                <div style={{fontSize:13,color:C.muted}}>Clarifie tes tâches dans l'Inbox<br/>pour les voir ici.</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── PROJETS ── */}
+        {tab==="projets"&&(
+          <div>
+            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:16}}>
+              {[["all","Tous",C.accent],...Object.entries(TD_DOM).map(([k,v])=>[k,v.label,v.c])].map(([k,l,c])=>(
+                <button key={k} onClick={()=>setDomFilter(k)} style={{flexShrink:0,padding:"6px 14px",borderRadius:999,border:`1px solid ${domFilter===k?c:C.border}`,background:domFilter===k?c+"22":C.surface2,color:domFilter===k?c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+
+            {filteredP.length===0&&<div style={{textAlign:"center",padding:"60px 0",fontSize:13,color:C.faint}}>Aucun projet. <span onClick={()=>setShowModal(true)} style={{color:C.accent,cursor:"pointer"}}>+ Créer</span></div>}
+
+            {filteredP.map(item=>{
+              const st=TD_STATUTS[item.statut]||TD_STATUTS.a_planifier;
+              const dc=item.domaine?TD_DOM[item.domaine]?.c||C.border:C.border;
+              const children=todos.filter(t=>t.parentId===item.id);
+              const doneChildren=children.filter(t=>t.done);
+              const isExp=expanded.has(item.id);
+              const toggleEx=()=>setExpanded(s=>{const n=new Set(s);n.has(item.id)?n.delete(item.id):n.add(item.id);return n;});
+              return (
+                <div key={item.id} style={{marginBottom:10,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`4px solid ${dc}`,borderRadius:16,overflow:"hidden",opacity:item.done?0.45:1}}>
+                  <div style={{padding:"14px 16px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:children.length?6:0}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:14,fontWeight:600,color:item.done?C.muted:C.text,textDecoration:item.done?"line-through":"none"}}>{item.name}</div>
+                      </div>
+                      <span style={{fontSize:10,fontWeight:600,padding:"3px 8px",borderRadius:999,background:st.c+"22",color:st.c}}>{st.label}</span>
+                      <span onClick={()=>toggleDone(item.id)} style={{fontSize:18,cursor:"pointer",color:item.done?C.green:C.borderMid}}>{item.done?"●":"○"}</span>
+                      <span onClick={()=>deleteItem(item.id)} style={{fontSize:13,cursor:"pointer",color:C.faint}}>✕</span>
+                    </div>
+                    {children.length>0&&<div style={{marginBottom:6}}><ProgressBar value={doneChildren.length/children.length*100} height={4} color={dc}/><div style={{fontSize:11,color:C.muted,marginTop:4}}>{doneChildren.length}/{children.length} tâches</div></div>}
+                    {item.deadline&&<div style={{fontSize:11,color:item.deadline<today?C.red:C.muted,marginTop:4}}>📅 {item.deadline}</div>}
+                    {children.length>0&&<div onClick={toggleEx} style={{fontSize:12,color:C.accent,cursor:"pointer",marginTop:6}}>{isExp?"▲ Masquer":`▼ ${children.length} sous-tâche${children.length>1?"s":""}`}</div>}
+                  </div>
+                  {isExp&&children.length>0&&(
+                    <div style={{borderTop:`1px solid ${C.border}`,padding:"10px 16px"}}>
+                      {children.map(ch=>(
+                        <div key={ch.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.border}`,opacity:ch.done?0.5:1}}>
+                          <span onClick={()=>updateItem(ch.id,{done:!ch.done})} style={{fontSize:16,cursor:"pointer",color:ch.done?C.green:C.borderMid}}>{ch.done?"●":"○"}</span>
+                          <span style={{fontSize:13,color:C.text,flex:1,textDecoration:ch.done?"line-through":"none"}}>{ch.name}</span>
+                          <span onClick={()=>deleteItem(ch.id)} style={{fontSize:12,cursor:"pointer",color:C.faint}}>✕</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {memos.length>0&&(
+              <div style={{marginTop:24}}>
+                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>📝 Mémos</div>
+                {memos.map(item=>(
+                  <div key={item.id} style={{padding:"12px 14px",borderRadius:14,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:"3px solid #6366f1",opacity:item.done?0.45:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:13,color:C.text,flex:1}}>{item.name}</span>
+                      <span onClick={()=>toggleDone(item.id)} style={{fontSize:16,cursor:"pointer",color:item.done?C.green:C.borderMid}}>{item.done?"●":"○"}</span>
+                      <span onClick={()=>deleteItem(item.id)} style={{fontSize:12,cursor:"pointer",color:C.faint}}>✕</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── INBOX ── */}
+        {tab==="inbox"&&(
+          <div>
+            <div style={{background:C.surface2,border:`1px solid ${C.borderMid}`,borderRadius:18,padding:16,marginBottom:20}}>
+              <div style={{fontSize:11,color:C.accent,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>📥 Capture rapide</div>
+              <div style={{display:"flex",gap:8}}>
+                <Input value={inboxText} onChange={setInboxText} onKeyDown={e=>e.key==="Enter"&&captureInbox()} placeholder="Capture une idée ou tâche..." style={{flex:1}}/>
+                <Btn onClick={captureInbox} variant="accent" style={{whiteSpace:"nowrap"}}>+ Ajouter</Btn>
+              </div>
+            </div>
+            {byGTD("inbox").length===0
+              ? <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Inbox zéro — David Allen serait fier.</div>
+              : byGTD("inbox").map(item=>(
+                <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14,color:C.text}}>{item.name}</div>
+                    <span style={{fontSize:11,fontWeight:600,color:C.amber}}>À clarifier</span>
+                  </div>
+                  <Btn onClick={()=>setClarifyId(item.id)} variant="ghost" style={{fontSize:12,padding:"6px 12px",whiteSpace:"nowrap"}}>Clarifier →</Btn>
+                  <span onClick={()=>deleteItem(item.id)} style={{fontSize:14,color:C.faint,cursor:"pointer"}}>✕</span>
+                </div>
+              ))
+            }
+          </div>
+        )}
+
+        {/* ── SOMEDAY ── */}
+        {tab==="someday"&&(
+          <div>
+            <div style={{marginBottom:16}}><Input value={somedayQ} onChange={setSomedayQ} placeholder="Rechercher..."/></div>
+            <div style={{fontSize:13,color:C.muted,marginBottom:16}}>💭 Un jour, peut-être... <span style={{color:C.faint}}>({byGTD("someday").length})</span></div>
+            {byGTD("someday").filter(t=>!somedayQ||t.name.toLowerCase().includes(somedayQ.toLowerCase())).length===0
+              ? <div style={{fontSize:13,color:C.faint,textAlign:"center",padding:"32px 0"}}>Aucune idée capturée.</div>
+              : byGTD("someday").filter(t=>!somedayQ||t.name.toLowerCase().includes(somedayQ.toLowerCase())).map(item=>(
+                <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,opacity:0.75}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14,color:C.muted}}>{item.name}</div>
+                    <div style={{display:"flex",gap:8,marginTop:4}}>
+                      {item.domaine&&<span style={{fontSize:11,color:TD_DOM[item.domaine]?.c}}>{TD_DOM[item.domaine]?.label}</span>}
+                      <span style={{fontSize:11,color:C.faint}}>{item.createdAt?.slice(0,10)}</span>
+                    </div>
+                  </div>
+                  <Btn onClick={()=>updateItem(item.id,{gtd:"inbox"})} variant="ghost" style={{fontSize:11,padding:"5px 10px"}}>→ Activer</Btn>
+                  <span onClick={()=>deleteItem(item.id)} style={{fontSize:14,color:C.faint,cursor:"pointer"}}>✕</span>
+                </div>
+              ))
+            }
+          </div>
+        )}
+      </div>
+
+      {/* FAB */}
+      <button onClick={()=>{setModalMode("fast");setShowModal(true);}} style={{position:"fixed",bottom:"calc(80px + env(safe-area-inset-bottom))",right:20,width:52,height:52,borderRadius:"50%",background:GRAD,border:"none",color:"#fff",fontSize:24,cursor:"pointer",boxShadow:GLOW,zIndex:40,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+
+      {/* QUICK ADD MODAL */}
+      {showModal&&(
+        <div onClick={()=>setShowModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
+          <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,margin:"0 auto",background:C.surface,borderRadius:"24px 24px 0 0",border:`1px solid ${C.border}`,padding:20,paddingBottom:"calc(20px + env(safe-area-inset-bottom))"}}>
+            <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:20}}>
+              {[["fast","⚡ Capture"],["full","Tâche complète"]].map(([m,l])=>(
+                <button key={m} onClick={()=>setModalMode(m)} style={{padding:"7px 16px",borderRadius:999,border:`1px solid ${modalMode===m?C.accent:C.border}`,background:modalMode===m?C.accentBg:"transparent",color:modalMode===m?C.accent:C.muted,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+            <Input autoFocus value={mForm.name} onChange={v=>setMForm(f=>({...f,name:v}))} onKeyDown={e=>e.key==="Enter"&&handleModalSubmit()} placeholder={modalMode==="fast"?"Capture une idée ou tâche...":"Nom de la tâche..."}/>
+            {modalMode==="full"&&(
+              <div className="slide-up">
+                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"16px 0 8px"}}>Domaine</div>
+                <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+                  {Object.entries(TD_DOM).map(([k,v])=>(
+                    <button key={k} onClick={()=>setMForm(f=>({...f,domaine:f.domaine===k?null:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${mForm.domaine===k?v.c:C.border}`,background:mForm.domaine===k?v.c+"22":"transparent",color:mForm.domaine===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
+                  ))}
+                </div>
+                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"16px 0 8px"}}>Type GTD</div>
+                <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+                  {[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["someday","💭 Someday"],["highlight","⚡ Highlight"],["waiting","⏳ Waiting"]].map(([k,l])=>(
+                    <button key={k} onClick={()=>setMForm(f=>({...f,gtd:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${mForm.gtd===k?C.accent:C.border}`,background:mForm.gtd===k?C.accentBg:"transparent",color:mForm.gtd===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
+                  ))}
+                </div>
+                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"16px 0 8px"}}>Urgence / Importance</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:16}}>
+                  {Object.entries(TD_MAT).map(([k,v])=>(
+                    <button key={k} onClick={()=>setMForm(f=>({...f,matrice:f.matrice===k?null:k}))} style={{padding:"8px",borderRadius:12,border:`1px solid ${mForm.matrice===k?C.accent:C.border}`,background:mForm.matrice===k?C.accentBg:"transparent",color:mForm.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{marginTop:16}}>
+              <Btn onClick={handleModalSubmit} variant="accent" style={{width:"100%"}}>{modalMode==="fast"?"Capturer →":"Ajouter"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CLARIFY MODAL */}
+      {clarifyItem&&(
+        <div onClick={()=>setClarifyId(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
+          <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,margin:"0 auto",background:C.surface,borderRadius:"24px 24px 0 0",border:`1px solid ${C.border}`,padding:20,paddingBottom:"calc(20px + env(safe-area-inset-bottom))"}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:16}}>Clarifier — {clarifyItem.name}</div>
+
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Quel type ?</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+              {[["projet","🔴 Projet",C.red],["memo","📝 Mémo","#6366f1"],["waiting","⏳ Waiting",C.amber],["someday","💭 Someday",C.faint],["highlight","⚡ Highlight",C.accent],["projet","🔴 Projet",C.red]].filter((v,i,a)=>a.findIndex(x=>x[0]===v[0])===i).map(([k,l,c])=>(
+                <button key={k} onClick={()=>updateItem(clarifyId,{gtd:k})} style={{padding:"12px",borderRadius:14,border:`1px solid ${clarifyItem.gtd===k?c:C.border}`,background:clarifyItem.gtd===k?c+"22":C.surface2,color:clarifyItem.gtd===k?c:C.muted,fontSize:13,fontFamily:"inherit",textAlign:"center",cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Quel domaine ?</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
+              {Object.entries(TD_DOM).map(([k,v])=>(
+                <button key={k} onClick={()=>updateItem(clarifyId,{domaine:clarifyItem.domaine===k?null:k})} style={{padding:"6px 12px",borderRadius:999,border:`1px solid ${clarifyItem.domaine===k?v.c:C.border}`,background:clarifyItem.domaine===k?v.c+"22":"transparent",color:clarifyItem.domaine===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
+              ))}
+            </div>
+
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Quelle urgence ?</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+              {Object.entries(TD_MAT).map(([k,v])=>(
+                <button key={k} onClick={()=>updateItem(clarifyId,{matrice:clarifyItem.matrice===k?null:k})} style={{padding:"10px",borderRadius:12,border:`1px solid ${clarifyItem.matrice===k?C.accent:C.border}`,background:clarifyItem.matrice===k?C.accentBg:C.surface2,color:clarifyItem.matrice===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
+              ))}
+            </div>
+
+            {clarifyItem.gtd==="waiting"&&(
+              <div style={{marginBottom:16}}>
+                <Input value={clarifyItem.waitingFor||""} onChange={v=>updateItem(clarifyId,{waitingFor:v})} placeholder="Attendu de (nom de la personne)..."/>
+              </div>
+            )}
+
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Statut</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
+              {Object.entries(TD_STATUTS).map(([k,v])=>(
+                <button key={k} onClick={()=>updateItem(clarifyId,{statut:k})} style={{padding:"6px 12px",borderRadius:999,border:`1px solid ${clarifyItem.statut===k?v.c:C.border}`,background:clarifyItem.statut===k?v.c+"22":"transparent",color:clarifyItem.statut===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
+              ))}
+            </div>
+
+            <Btn onClick={()=>setClarifyId(null)} variant="accent" style={{width:"100%"}}>Confirmer & Clarifier ✓</Btn>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
