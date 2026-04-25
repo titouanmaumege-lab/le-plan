@@ -98,3 +98,16 @@ button:active {
 .fade-in   { animation: fadeInUp 0.22s ease forwards; }
 .slide-up  { animation: slideUp 0.22s ease forwards; }
 .habit-pop { animation: habitPop 0.28s ease; }
+
+.dashboard-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 700px) {
+  .dashboard-split {
+    grid-template-columns: 1fr;
+  }
+}
