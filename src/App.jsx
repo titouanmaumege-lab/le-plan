@@ -915,7 +915,7 @@ function ObjectifsModule() {
   const doneCount   = items.filter(o => o.statut==="Terminé").length;
   return (
     <div>
-      <PageHeader title="▲ Objectifs" />
+      <PageHeader title="⭐ Objectifs" />
       <div style={{ padding: "16px 16px 100px" }}>
         {/* Level tabs */}
         <div style={{ display:"flex", gap:6, overflowX:"auto", marginBottom:20, paddingBottom:4 }}>
@@ -1441,7 +1441,7 @@ function TodoModule() {
 
   return (
     <div>
-      <PageHeader title="□ Todo" />
+      <PageHeader title="✅ Todo" />
 
       {/* Tab bar */}
       <div style={{position:"sticky",top:57,zIndex:10,background:"rgba(13,13,26,0.96)",backdropFilter:"blur(20px)",borderBottom:`1px solid ${C.border}`,padding:"10px 16px"}}>
@@ -1755,7 +1755,7 @@ function HabitudesModule() {
 
   return (
     <div>
-      <PageHeader title="○ Habitudes" />
+      <PageHeader title="🔥 Habitudes" />
       <div style={{ padding:"16px 16px 100px" }}>
         {/* View tabs */}
         <div style={{ display:"flex", gap:6, marginBottom:20, overflowX:"auto", paddingBottom:4 }}>
@@ -1939,7 +1939,7 @@ function WorkPerfModule() {
   const deepPct = totalToday>0 ? Math.round(deepToday/totalToday*100) : 0;
   return (
     <div>
-      <PageHeader title="⏱ WorkPerf"
+      <PageHeader title="⏱️ WorkPerf"
         action={<button onClick={()=>setShowForm(s=>!s)} style={{background:GRAD,color:"#fff",border:"none",padding:"7px 16px",borderRadius:12,fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:GLOW_SM}}>+ Session</button>}
       />
       <div style={{padding:"16px 16px 100px"}}>
@@ -2099,7 +2099,7 @@ function DailyPaperModule() {
   ];
   return (
     <div>
-      <PageHeader title="✦ Daily Paper" />
+      <PageHeader title="📓 Daily Paper" />
       <div style={{padding:"16px 16px 100px"}}>
         {/* Date nav */}
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,justifyContent:"center"}}>
@@ -2331,7 +2331,7 @@ function LogsModule({ onBack }) {
   const empty = <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"60px 0"}}>Aucun log pour l'instant.</div>;
   return (
     <div>
-      <PageHeader title="◈ Logs" onBack={onBack} />
+      <PageHeader title="📋 Logs" onBack={onBack} />
       <div style={{padding:"16px 16px 100px"}}>
         <div style={{display:"flex",gap:6,marginBottom:16}}>
           {[["semaine","Semaine"],["mois","Mois"],["trimestre","Trimestre"]].map(([g,lbl])=>(
