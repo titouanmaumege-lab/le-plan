@@ -2508,6 +2508,48 @@ function LogsModule({ onBack, viewMode, onSetViewMode }) {
             ))}
           </div>
         )}
+        <div style={{display:"flex",gap:8,marginBottom:20}}>
+          <button onClick={()=>{
+            const data={
+              lp_habits:getLS("lp_habits",[]),
+              leplan_todos:getLS("leplan_todos",[]),
+              lp_goals:getLS("lp_goals",{}),
+              lp_daily:getLS("lp_daily",{}),
+              lp_workperf:getLS("lp_workperf",[]),
+              lp_highlight:getLS("lp_highlight",{}),
+              lp_view_mode:localStorage.getItem("lp_view_mode"),
+            };
+            const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+            const url=URL.createObjectURL(blob);
+            const a=document.createElement("a");
+            a.href=url;a.download="leplan-data.json";a.click();
+            URL.revokeObjectURL(url);
+          }} style={{flex:1,padding:"9px 0",borderRadius:12,fontSize:13,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${C.border}`,background:C.surface2,color:C.text,fontWeight:600}}>
+            ⬇ Exporter données
+          </button>
+          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:"9px 0",borderRadius:12,fontSize:13,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${C.border}`,background:C.surface2,color:C.text,fontWeight:600}}>
+            ⬆ Importer données
+            <input type="file" accept=".json" style={{display:"none"}} onChange={e=>{
+              const file=e.target.files[0]; if(!file)return;
+              const reader=new FileReader();
+              reader.onload=ev=>{
+                try{
+                  const data=JSON.parse(ev.target.result);
+                  if(data.lp_habits)setLS("lp_habits",data.lp_habits);
+                  if(data.leplan_todos)setLS("leplan_todos",data.leplan_todos);
+                  if(data.lp_goals)setLS("lp_goals",data.lp_goals);
+                  if(data.lp_daily)setLS("lp_daily",data.lp_daily);
+                  if(data.lp_workperf)setLS("lp_workperf",data.lp_workperf);
+                  if(data.lp_highlight)setLS("lp_highlight",data.lp_highlight);
+                  if(data.lp_view_mode)localStorage.setItem("lp_view_mode",data.lp_view_mode);
+                  window.location.reload();
+                }catch{alert("Fichier JSON invalide.");}
+              };
+              reader.readAsText(file);
+              e.target.value="";
+            }}/>
+          </label>
+        </div>
         <div style={{display:"flex",gap:6,marginBottom:16}}>
           {[["semaine","Semaine"],["mois","Mois"],["trimestre","Trimestre"]].map(([g,lbl])=>(
             <button key={g} onClick={()=>setGroupBy(g)} style={{
