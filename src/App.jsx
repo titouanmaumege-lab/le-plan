@@ -451,83 +451,86 @@ function MonthCalendar() {
   );
 }
 
-function BiWeeklyPlanning() {
+function WeeklyCalendar() {
   const { todos } = useTodos();
   const today = todayStr();
+  const [offset, setOffset] = useState(0);
+
   const now = new Date();
   const dow = (now.getDay() + 6) % 7;
-  const monday = new Date(now); monday.setDate(now.getDate() - dow);
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - dow + offset * 7);
 
-  const days14 = Array.from({ length: 14 }, (_, i) => {
+  const days7 = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday); d.setDate(monday.getDate() + i);
     return d.toISOString().split("T")[0];
   });
 
-  const getItemsForDay = ds => {
+  const DAY_SHORT = ["L","M","M","J","V","S","D"];
+
+  const getItems = ds => {
     const d = new Date(ds + "T12:00:00");
-    const items = [];
+    const out = [];
     todos.forEach(t => {
       if (t.done) return;
       if (t.gtd === "projet" && t.dateDebut && t.dateFin) {
         const s = new Date(t.dateDebut + "T12:00:00");
         const e = new Date(t.dateFin + "T12:00:00");
-        if (s <= d && e >= d) items.push({ ...t, _type: "projet" });
+        if (s <= d && e >= d) out.push({ ...t, _type: "projet" });
       } else if (t.dateAssignee === ds) {
-        items.push({ ...t, _type: t.gtd === "memo" ? "memo" : "todo" });
+        out.push({ ...t, _type: t.gtd === "memo" ? "memo" : "todo" });
       }
     });
-    return items;
+    return out;
   };
 
-  const DAY_SHORT = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
+  const wkLabel = offset === 0 ? "Cette semaine"
+    : offset === 1 ? "Semaine prochaine"
+    : offset === -1 ? "Semaine précédente"
+    : (() => {
+        const end = new Date(monday); end.setDate(monday.getDate() + 6);
+        return `${monday.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} – ${end.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}`;
+      })();
 
-  const renderDay = ds => {
-    const d = new Date(ds + "T12:00:00");
-    const dayNum = d.getDate();
-    const dayLabel = DAY_SHORT[(d.getDay() + 6) % 7];
-    const isToday = ds === today;
-    const items = getItemsForDay(ds);
-    return (
-      <div key={ds} style={{
-        display: "flex", gap: 8, padding: "5px 0",
-        borderBottom: `1px solid ${C.border}22`, minHeight: 30,
-      }}>
-        <div style={{ width: 32, flexShrink: 0, paddingTop: 2 }}>
-          <div style={{ fontSize: 13, fontWeight: isToday ? 700 : 400, color: isToday ? C.accent : C.muted, lineHeight: 1.2 }}>{dayNum}</div>
-          <div style={{ fontSize: 9, color: C.faint }}>{dayLabel}</div>
-        </div>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2, paddingTop: 2 }}>
-          {items.length === 0
-            ? <span style={{ fontSize: 11, color: C.faint, lineHeight: 1.8 }}>—</span>
-            : items.map(item => {
-                const col = SPHERES[item.sphere]?.c || (item._type === "memo" ? C.blue : C.accent);
-                return (
-                  <div key={item.id} style={{
-                    fontSize: 11, color: col, background: col + "22",
-                    borderLeft: `2px solid ${col}`, borderRadius: 4,
-                    padding: "2px 7px", overflow: "hidden",
-                    textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>{item.name}</div>
-                );
-              })
-          }
-        </div>
-      </div>
-    );
-  };
+  const NavBtn = ({ dir }) => (
+    <button onClick={() => setOffset(o => o + dir)} style={{
+      background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8,
+      color: C.muted, fontSize: 16, cursor: "pointer", padding: "2px 10px",
+      fontFamily: "inherit", lineHeight: 1,
+    }}>{dir < 0 ? "‹" : "›"}</button>
+  );
 
   return (
-    <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: 16 }}>
-      <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
-        📅 Planning 2 semaines
+    <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: "12px 12px", marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <NavBtn dir={-1} />
+        <span style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>{wkLabel}</span>
+        <NavBtn dir={1} />
       </div>
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 9, color: C.faint, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>CETTE SEMAINE</div>
-        {days14.slice(0, 7).map(renderDay)}
-      </div>
-      <div>
-        <div style={{ fontSize: 9, color: C.faint, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4, marginTop: 10 }}>SEMAINE PROCHAINE</div>
-        {days14.slice(7).map(renderDay)}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
+        {days7.map((ds, i) => {
+          const d = new Date(ds + "T12:00:00");
+          const isToday = ds === today;
+          const items = getItems(ds);
+          return (
+            <div key={ds} style={{
+              display: "flex", flexDirection: "column", alignItems: "center",
+              gap: 4, padding: "6px 2px", borderRadius: 10,
+              background: isToday ? "rgba(139,92,246,0.13)" : "transparent",
+              border: `1px solid ${isToday ? C.accent + "50" : "transparent"}`,
+            }}>
+              <div style={{ fontSize: 9, color: C.faint, textTransform: "uppercase", letterSpacing: "0.05em" }}>{DAY_SHORT[i]}</div>
+              <div style={{ fontSize: 15, fontWeight: isToday ? 700 : 400, color: isToday ? C.accent : C.text, lineHeight: 1 }}>{d.getDate()}</div>
+              <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 2, minHeight: 12 }}>
+                {items.slice(0, 5).map(item => {
+                  const col = SPHERES[item.sphere]?.c || (item._type === "memo" ? C.blue : C.accent);
+                  return <div key={item.id} style={{ height: 3, borderRadius: 2, background: col }} title={item.name} />;
+                })}
+                {items.length > 5 && <div style={{ fontSize: 8, color: C.faint, textAlign: "center", lineHeight: 1 }}>+{items.length - 5}</div>}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -744,21 +747,21 @@ function Dashboard({ onNav, onOpenLogs }) {
           </div>
         </div>
 
-        {/* MAIN SPLIT: Planning | Habitudes */}
-        <div className="dashboard-split">
-          <BiWeeklyPlanning />
-          <div id="dash-habits" style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: 16 }}>
-            <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
-              ○ Habitudes — {fmtDate(t)}
-            </div>
-            {habits.length === 0
-              ? <p style={{ fontSize: 13, color: C.faint }}>Aucune habitude. <span onClick={() => onNav("habitudes")} style={{ color: C.accent, cursor: "pointer" }}>→ Configurer</span></p>
-              : habits.map(h => {
-                  const done = (h.logs || []).includes(t);
-                  return <HabitChip key={h.id} habit={h} done={done} onToggle={() => toggleHabit(h.id)} animating={animating.has(h.id)} />;
-                })
-            }
+        {/* WEEKLY CALENDAR */}
+        <WeeklyCalendar />
+
+        {/* HABITUDES */}
+        <div id="dash-habits" style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
+            🔥 Habitudes — {fmtDate(t)}
           </div>
+          {habits.length === 0
+            ? <p style={{ fontSize: 13, color: C.faint }}>Aucune habitude. <span onClick={() => onNav("habitudes")} style={{ color: C.accent, cursor: "pointer" }}>→ Configurer</span></p>
+            : habits.map(h => {
+                const done = (h.logs || []).includes(t);
+                return <HabitChip key={h.id} habit={h} done={done} onToggle={() => toggleHabit(h.id)} animating={animating.has(h.id)} />;
+              })
+          }
         </div>
 
         {/* SESSIONS DU JOUR */}
