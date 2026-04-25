@@ -270,11 +270,11 @@ function PageHeader({ title, onBack, action }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const BOTTOM_NAV = [
   { id: "dashboard", icon: "🏠", label: "Home" },
-  { id: "todo",      icon: "□",  label: "Todo" },
-  { id: "habitudes", icon: "○",  label: "Habitudes" },
-  { id: "workperf",  icon: "⏱", label: "WorkPerf" },
-  { id: "daily",     icon: "✦",  label: "Daily" },
-  { id: "objectifs", icon: "▲",  label: "Objectifs" },
+  { id: "todo",      icon: "✅", label: "Todo" },
+  { id: "habitudes", icon: "🔥", label: "Habitudes" },
+  { id: "workperf",  icon: "⏱️", label: "WorkPerf" },
+  { id: "daily",     icon: "📓", label: "Daily" },
+  { id: "objectifs", icon: "⭐", label: "Objectifs" },
 ];
 
 function BottomNav({ current, onNav }) {
