@@ -132,11 +132,10 @@ const LEVELS = [
   { id: "annuel",      label: "Annuel",       icon: "🌌", c: C.blue },
   { id: "trimestriel", label: "Trimestriel",  icon: "🌍", c: C.green },
   { id: "mensuel",     label: "Mensuel",      icon: "🗻", c: C.amber },
-  { id: "hebdo",       label: "Hebdomadaire", icon: "🌁", c: C.orange },
 ];
-const STATUS_OPTIONS_BASE  = ["Dans les blocs","En cours","On-track","Off-track","At-risk","Terminé","Échoué"];
-const STATUS_OPTIONS_HEBDO = ["Pas commencé","On track","Off track","At risk","Partiel","Terminé","Echoué"];
-const AVEC_OPTIONS = ["Solo","Groupe","Laurine","Hugo","Famille","MHSC"];
+const LEVEL_PARENT = { annuel:"lt", trimestriel:"annuel", mensuel:"trimestriel" };
+const LEVEL_CHILD  = { lt:"annuel", annuel:"trimestriel", trimestriel:"mensuel" };
+const STATUS_OPTIONS_BASE = ["Dans les blocs","En cours","On-track","Off-track","At-risk","Terminé","Échoué"];
 
 const WP_TYPES     = ["DEEP","SHALLOW","COURS","GROUPE"];
 const WP_DOMAINES  = ["BUSINESS","MASTER","PRÉPA","STAGE","MÉMOIRE","FORMATIONS PP","PROJET PERSO","PERSO","CLIENT","OPTIMISATION","AUTRE"];
@@ -824,151 +823,242 @@ function KRCard({ kr, onUpdate, onDelete }) {
   );
 }
 
-function ObjectifCard({ obj, levelColor, levelId, onUpdate, onDelete }) {
-  const [open, setOpen] = useState(false);
-  const [newKR, setNewKR] = useState({ nom: "", depart: "", actuelle: "", cible: "" });
+function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose }) {
+  const [titre, setTitre]   = useState(obj.titre||"");
+  const [statut, setStatut] = useState(obj.statut||"Dans les blocs");
+  const [spaces, setSpaces] = useState(obj.spaces||[]);
+  const [parentId, setParentId] = useState(obj.parentId||"");
+  const [krs, setKrs]       = useState(obj.krs||[]);
+  const [newKR, setNewKR]   = useState({nom:"",depart:"",actuelle:"",cible:""});
   const [addingKR, setAddingKR] = useState(false);
-  const krs = obj.krs || [];
-  const avgPct = krs.length ? Math.round(krs.reduce((s,k) => s + pct(k.depart??0, k.actuelle??0, k.cible??0), 0) / krs.length) : null;
-  const st = STATUTS[obj.statut] || { c: C.muted };
-  const isDone = obj.statut === "Terminé";
+  const [confirmDel, setConfirmDel] = useState(false);
+  const level         = LEVELS.find(l=>l.id===levelId);
+  const parentLevelId = LEVEL_PARENT[levelId];
+  const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
+  const parentOptions = parentLevelId?(allGoals[parentLevelId]||[]):[];
+  const childLevelId  = LEVEL_CHILD[levelId];
+  const childLevel    = LEVELS.find(l=>l.id===childLevelId);
+  const children      = childLevelId?(allGoals[childLevelId]||[]).filter(o=>o.parentId===obj.id):[];
+  const linkedProjects = levelId==="mensuel"
+    ? (()=>{const s=getLS("leplan_todos",null)||getLS("lp_todos",[]);return(s||[]).map(migrateOneTodo).filter(Boolean).filter(t=>t.gtd==="projet"&&t.objectifMensuelId===obj.id&&!t.done);})()
+    : [];
   const addKR = () => {
-    if (!newKR.nom.trim()) return;
-    const kr = { id: uid(), nom: newKR.nom.trim(), depart: parseFloat(newKR.depart)||0, actuelle: parseFloat(newKR.actuelle)||parseFloat(newKR.depart)||0, cible: parseFloat(newKR.cible)||0 };
-    onUpdate({ ...obj, krs: [...krs, kr] });
-    setNewKR({ nom:"",depart:"",actuelle:"",cible:"" }); setAddingKR(false);
+    if(!newKR.nom.trim()) return;
+    const kr={id:uid(),nom:newKR.nom.trim(),depart:parseFloat(newKR.depart)||0,actuelle:parseFloat(newKR.actuelle)||parseFloat(newKR.depart)||0,cible:parseFloat(newKR.cible)||0};
+    setKrs(ks=>[...ks,kr]); setNewKR({nom:"",depart:"",actuelle:"",cible:""}); setAddingKR(false);
   };
+  const save = () => { onUpdate({...obj,titre:titre.trim(),statut,spaces,parentId:parentId||undefined,krs}); onClose(); };
   return (
-    <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, marginBottom: 10, overflow: "hidden", opacity: isDone ? 0.5 : 1, borderLeft: `4px solid ${st.c}` }}>
-      <div style={{ padding: "14px 16px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: isDone ? C.muted : C.text, textDecoration: isDone?"line-through":"none", marginBottom: 8, lineHeight: 1.4 }}>{obj.titre}</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <StatusPill statut={obj.statut} />
-              {(obj.spaces||[]).map(sp => <SpacePill key={sp} space={sp} />)}
-              {levelId === "hebdo" && obj.avec && <Pill label={`👤 ${obj.avec}`} color={C.muted} />}
-            </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
-            {avgPct !== null && <span style={{ fontSize: 13, fontWeight: 700, color: levelColor }}>{avgPct}%</span>}
-            <Select value={obj.statut} options={levelId==="hebdo"?STATUS_OPTIONS_HEBDO:STATUS_OPTIONS_BASE} onChange={v => onUpdate({...obj,statut:v})} style={{ fontSize: 11, padding: "4px 8px" }} />
-            <div style={{ display: "flex", gap: 10 }}>
-              <span onClick={() => setOpen(!open)} style={{ fontSize: 11, color: levelColor, cursor: "pointer", userSelect: "none" }}>KR {open?"▲":"▼"}</span>
-              <span onClick={() => onDelete(obj.id)} style={{ fontSize: 12, color: C.muted, cursor: "pointer" }}>✕</span>
-            </div>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:520,background:C.surface,borderRadius:20,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{fontSize:10,color:level?.c,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>{level?.icon} {level?.label}</div>
+        <input autoFocus value={titre} onChange={e=>setTitre(e.target.value)}
+          style={{width:"100%",background:"transparent",border:"none",borderBottom:`2px solid ${C.accent}`,color:C.text,fontSize:17,fontWeight:700,fontFamily:"inherit",outline:"none",padding:"4px 0",boxSizing:"border-box",marginBottom:18}}/>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Statut</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {STATUS_OPTIONS_BASE.map(s=>(
+              <button key={s} onClick={()=>setStatut(s)} style={{padding:"5px 12px",borderRadius:999,fontSize:12,border:`1px solid ${statut===s?C.accent:C.border}`,background:statut===s?C.accentBg:"transparent",color:statut===s?C.accent:C.muted,fontFamily:"inherit",cursor:"pointer"}}>{s}</button>
+            ))}
           </div>
         </div>
-        {krs.length > 0 && avgPct !== null && <div style={{ marginTop: 10 }}><ProgressBar value={avgPct} color={levelColor} height={5} /></div>}
-      </div>
-      {open && (
-        <div style={{ padding: "0 16px 14px", borderTop: `1px solid ${C.border}` }}>
-          <div style={{ paddingTop: 12 }}>
-            {krs.length === 0 && !addingKR && <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>Aucun Key Result.</div>}
-            {krs.map(kr => <KRCard key={kr.id} kr={kr} onUpdate={u => onUpdate({...obj,krs:krs.map(k=>k.id===u.id?u:k)})} onDelete={id => onUpdate({...obj,krs:krs.filter(k=>k.id!==id)})} />)}
-            {addingKR ? (
-              <div style={{ background: C.surface3, borderRadius: 12, padding: 12, border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 11, color: C.muted, marginBottom: 8, fontWeight: 500 }}>Nouveau Key Result</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <input placeholder="Nom du KR..." value={newKR.nom} onChange={e => setNewKR(p => ({...p,nom:e.target.value}))}
-                    style={{ background: C.surface2, border:`1px solid ${C.border}`, color:C.text, padding:"8px 12px", borderRadius:10, fontSize:13, fontFamily:"inherit", outline:"none" }} />
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
-                    {[["depart","Départ"],["actuelle","Actuelle"],["cible","Cible"]].map(([k,l]) => (
-                      <div key={k}>
-                        <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{l}</div>
-                        <input type="number" placeholder="0" value={newKR[k]} onChange={e => setNewKR(p=>({...p,[k]:e.target.value}))}
-                          style={{width:"100%",boxSizing:"border-box",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"7px 8px",borderRadius:8,fontSize:12,fontFamily:"inherit",outline:"none"}} />
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display:"flex", gap:8, marginTop:4 }}>
-                    <Btn onClick={addKR} variant="accent">Ajouter</Btn>
-                    <Btn onClick={() => setAddingKR(false)} variant="ghost">Annuler</Btn>
-                  </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Sphères</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {Object.entries(SPACES).map(([sp,{c,icon}])=>{
+              const sel=spaces.includes(sp);
+              return <button key={sp} onClick={()=>setSpaces(s=>s.includes(sp)?s.filter(x=>x!==sp):[...s,sp])} style={{padding:"5px 12px",borderRadius:999,fontSize:12,border:`1px solid ${sel?c:C.border}`,background:sel?c+"20":"transparent",color:sel?c:C.muted,fontFamily:"inherit",cursor:"pointer"}}>{icon} {sp}</button>;
+            })}
+          </div>
+        </div>
+
+        {parentOptions.length>0&&(
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>↑ Lié à ({parentLevel?.label})</div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <button onClick={()=>setParentId("")} style={{textAlign:"left",padding:"8px 12px",borderRadius:10,border:`1px solid ${!parentId?C.accent:C.border}`,background:!parentId?C.accentBg:"transparent",color:!parentId?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>— Aucun</button>
+              {parentOptions.map(p=>(
+                <button key={p.id} onClick={()=>setParentId(p.id)} style={{textAlign:"left",padding:"8px 12px",borderRadius:10,border:`1px solid ${parentId===p.id?C.accent:C.border}`,background:parentId===p.id?C.accentBg:"transparent",color:parentId===p.id?C.accent:C.text,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{p.titre}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {children.length>0&&(
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>↓ Décliné en ({childLevel?.label})</div>
+            {children.map(ch=><div key={ch.id} style={{padding:"6px 10px",borderRadius:8,background:C.surface2,fontSize:12,color:C.muted,marginBottom:4}}>• {ch.titre}</div>)}
+          </div>
+        )}
+
+        {linkedProjects.length>0&&(
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>🔴 Projets liés</div>
+            {linkedProjects.map(p=><div key={p.id} style={{padding:"6px 10px",borderRadius:8,background:C.surface2,fontSize:12,color:C.text,marginBottom:4}}>• {p.name}</div>)}
+          </div>
+        )}
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Key Results</div>
+          {krs.map(kr=>(
+            <KRCard key={kr.id} kr={kr}
+              onUpdate={u=>setKrs(ks=>ks.map(k=>k.id===u.id?u:k))}
+              onDelete={id=>setKrs(ks=>ks.filter(k=>k.id!==id))}
+            />
+          ))}
+          {addingKR?(
+            <div style={{background:C.surface3,borderRadius:12,padding:12,border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:500}}>Nouveau Key Result</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <input placeholder="Nom du KR..." value={newKR.nom} onChange={e=>setNewKR(p=>({...p,nom:e.target.value}))}
+                  style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"8px 12px",borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                  {[["depart","Départ"],["actuelle","Actuelle"],["cible","Cible"]].map(([k,l])=>(
+                    <div key={k}>
+                      <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{l}</div>
+                      <input type="number" placeholder="0" value={newKR[k]} onChange={e=>setNewKR(p=>({...p,[k]:e.target.value}))}
+                        style={{width:"100%",boxSizing:"border-box",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"7px 8px",borderRadius:8,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:4}}>
+                  <Btn onClick={addKR} variant="accent">Ajouter</Btn>
+                  <Btn onClick={()=>setAddingKR(false)} variant="ghost">Annuler</Btn>
                 </div>
               </div>
-            ) : (
-              <button onClick={() => setAddingKR(true)} style={{ background:"transparent", border:`1px dashed ${C.borderMid}`, color:C.muted, padding:"8px 14px", borderRadius:10, fontSize:12, cursor:"pointer", fontFamily:"inherit", width:"100%", marginTop:4 }}>+ Key Result</button>
-            )}
-          </div>
+            </div>
+          ):(
+            <button onClick={()=>setAddingKR(true)} style={{background:"transparent",border:`1px dashed ${C.borderMid}`,color:C.muted,padding:"8px 14px",borderRadius:10,fontSize:12,cursor:"pointer",fontFamily:"inherit",width:"100%",marginTop:4}}>+ Key Result</button>
+          )}
         </div>
-      )}
+
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
+          <Btn onClick={save} variant="accent" style={{width:"100%"}}>Enregistrer</Btn>
+          {confirmDel
+            ?<Btn onClick={()=>{onDelete(obj.id);onClose();}} style={{width:"100%",color:C.red,border:`1px solid ${C.red}44`}}>Confirmer suppression ✕</Btn>
+            :<Btn onClick={()=>setConfirmDel(true)} style={{width:"100%",color:C.red,border:`1px solid ${C.red}44`}}>Supprimer</Btn>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ObjectifCard({ obj, levelColor, levelId, allGoals, onOpenEdit }) {
+  const krs = obj.krs||[];
+  const avgPct = krs.length?Math.round(krs.reduce((s,k)=>s+pct(k.depart??0,k.actuelle??0,k.cible??0),0)/krs.length):null;
+  const st = STATUTS[obj.statut]||{c:C.muted};
+  const isDone = obj.statut==="Terminé";
+  const parentLevelId = LEVEL_PARENT[levelId];
+  const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
+  const parentObj     = obj.parentId?(allGoals[parentLevelId]||[]).find(p=>p.id===obj.parentId):null;
+  const childLevelId  = LEVEL_CHILD[levelId];
+  const childCount    = childLevelId?(allGoals[childLevelId]||[]).filter(o=>o.parentId===obj.id).length:0;
+  return (
+    <div onClick={()=>onOpenEdit(obj)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:16,marginBottom:10,overflow:"hidden",opacity:isDone?0.5:1,borderLeft:`4px solid ${st.c}`,cursor:"pointer"}}>
+      <div style={{padding:"14px 16px"}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:600,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none",marginBottom:8,lineHeight:1.4}}>{obj.titre}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+              <StatusPill statut={obj.statut}/>
+              {(obj.spaces||[]).map(sp=><SpacePill key={sp} space={sp}/>)}
+              {parentObj&&<Pill label={`↑ ${parentObj.titre.length>22?parentObj.titre.slice(0,22)+"…":parentObj.titre}`} color={parentLevel?.c||C.muted}/>}
+              {childCount>0&&<Pill label={`↓ ${childCount}`} color={levelColor}/>}
+            </div>
+          </div>
+          {avgPct!==null&&<span style={{fontSize:13,fontWeight:700,color:levelColor,flexShrink:0}}>{avgPct}%</span>}
+        </div>
+        {krs.length>0&&avgPct!==null&&<div style={{marginTop:10}}><ProgressBar value={avgPct} color={levelColor} height={5}/></div>}
+      </div>
     </div>
   );
 }
 
 function ObjectifsModule() {
-  const [goals, setGoals] = useState(() => getLS("lp_goals", NOTION_GOALS));
-  const [tab, setTab]     = useState("lt");
+  const [goals, setGoals]   = useState(()=>getLS("lp_goals",NOTION_GOALS));
+  const [tab, setTab]       = useState("lt");
   const [newTitre, setNewTitre] = useState("");
   const [newSpaces, setNewSpaces] = useState([]);
-  const [newAvec, setNewAvec]   = useState("Solo");
-  const save = d => { setGoals(d); setLS("lp_goals", d); };
-  const level = LEVELS.find(l => l.id === tab);
-  const items = goals[tab] || [];
+  const [newParentId, setNewParentId] = useState("");
+  const [editObj, setEditObj]   = useState(null);
+  const save = d=>{setGoals(d);setLS("lp_goals",d);};
+  const level = LEVELS.find(l=>l.id===tab);
+  const items = goals[tab]||[];
+  const parentLevelId = LEVEL_PARENT[tab];
+  const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
+  const parentOptions = parentLevelId?(goals[parentLevelId]||[]):[];
   const add = () => {
-    if (!newTitre.trim()) return;
-    const obj = { id:uid(), titre:newTitre.trim(), statut:tab==="hebdo"?"Pas commencé":"Dans les blocs", spaces:newSpaces, krs:[], ...(tab==="hebdo"?{avec:newAvec}:{}) };
-    save({ ...goals, [tab]: [...items, obj] }); setNewTitre(""); setNewSpaces([]);
+    if(!newTitre.trim()) return;
+    const obj={id:uid(),titre:newTitre.trim(),statut:"Dans les blocs",spaces:newSpaces,krs:[],...(newParentId?{parentId:newParentId}:{})};
+    save({...goals,[tab]:[...items,obj]}); setNewTitre(""); setNewSpaces([]); setNewParentId("");
   };
-  const activeCount = items.filter(o => o.statut!=="Terminé"&&o.statut!=="Échoué"&&o.statut!=="Echoué").length;
-  const doneCount   = items.filter(o => o.statut==="Terminé").length;
+  const activeCount = items.filter(o=>o.statut!=="Terminé"&&o.statut!=="Échoué"&&o.statut!=="Echoué").length;
+  const doneCount   = items.filter(o=>o.statut==="Terminé").length;
   return (
     <div>
       <PageHeader title="⭐ Objectifs" />
-      <div style={{ padding: "16px 16px 100px" }}>
-        {/* Level tabs */}
-        <div style={{ display:"flex", gap:6, overflowX:"auto", marginBottom:20, paddingBottom:4 }}>
-          {LEVELS.map(l => {
-            const cnt = (goals[l.id]||[]).filter(o=>o.statut!=="Terminé"&&o.statut!=="Échoué"&&o.statut!=="Echoué").length;
-            const active = tab===l.id;
+      <div style={{padding:"16px 16px 100px"}}>
+        <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:20,paddingBottom:4}}>
+          {LEVELS.map(l=>{
+            const cnt=(goals[l.id]||[]).filter(o=>o.statut!=="Terminé"&&o.statut!=="Échoué"&&o.statut!=="Echoué").length;
+            const active=tab===l.id;
             return (
-              <button key={l.id} onClick={() => setTab(l.id)} style={{
-                flexShrink:0, padding:"8px 16px", borderRadius:999, fontSize:12, fontFamily:"inherit",
-                border:`1px solid ${active?l.c:C.border}`, background:active?l.c+"18":C.surface2,
-                color:active?l.c:C.muted, fontWeight:active?600:400, display:"flex", alignItems:"center", gap:6,
-              }}>
+              <button key={l.id} onClick={()=>setTab(l.id)} style={{flexShrink:0,padding:"8px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",border:`1px solid ${active?l.c:C.border}`,background:active?l.c+"18":C.surface2,color:active?l.c:C.muted,fontWeight:active?600:400,display:"flex",alignItems:"center",gap:6}}>
                 <span>{l.icon}</span><span>{l.label}</span>
-                {cnt>0 && <span style={{background:l.c+"30",color:l.c,padding:"1px 7px",borderRadius:999,fontSize:10,fontWeight:700}}>{cnt}</span>}
+                {cnt>0&&<span style={{background:l.c+"30",color:l.c,padding:"1px 7px",borderRadius:999,fontSize:10,fontWeight:700}}>{cnt}</span>}
               </button>
             );
           })}
         </div>
 
-        {/* Add form */}
-        <div style={{ background:C.surface2, border:`1px solid ${C.border}`, borderRadius:18, padding:16, marginBottom:20 }}>
-          <div style={{ fontSize:10,color:C.muted,marginBottom:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em" }}>{level.icon} Nouvel objectif {level.label.toLowerCase()}</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            <Input value={newTitre} onChange={setNewTitre} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Titre de l'objectif..." />
-            {tab==="hebdo" && <Select value={newAvec} options={AVEC_OPTIONS} onChange={setNewAvec} />}
-            {tab!=="hebdo" && (
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                {Object.entries(SPACES).map(([sp,{c,icon}]) => {
-                  const sel = newSpaces.includes(sp);
-                  return (
-                    <button key={sp} onClick={() => setNewSpaces(s=>s.includes(sp)?s.filter(x=>x!==sp):[...s,sp])} style={{
-                      padding:"6px 12px", borderRadius:999, border:`1px solid ${sel?c:C.border}`,
-                      background:sel?c+"20":"transparent", color:sel?c:C.muted, cursor:"pointer", fontSize:12, fontFamily:"inherit",
-                    }}>{icon} {sp}</button>
-                  );
-                })}
+        <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:18,padding:16,marginBottom:20}}>
+          <div style={{fontSize:10,color:C.muted,marginBottom:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em"}}>{level.icon} Nouvel objectif {level.label.toLowerCase()}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <Input value={newTitre} onChange={setNewTitre} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Titre de l'objectif..."/>
+            {parentOptions.length>0&&(
+              <div>
+                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>↑ Lié à ({parentLevel?.label})</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  <button onClick={()=>setNewParentId("")} style={{padding:"5px 12px",borderRadius:999,fontSize:11,border:`1px solid ${!newParentId?C.accent:C.border}`,background:!newParentId?C.accentBg:"transparent",color:!newParentId?C.accent:C.muted,fontFamily:"inherit",cursor:"pointer"}}>Aucun</button>
+                  {parentOptions.map(p=>(
+                    <button key={p.id} onClick={()=>setNewParentId(p.id)} style={{padding:"5px 12px",borderRadius:999,fontSize:11,border:`1px solid ${newParentId===p.id?C.accent:C.border}`,background:newParentId===p.id?C.accentBg:"transparent",color:newParentId===p.id?C.accent:C.muted,fontFamily:"inherit",cursor:"pointer"}}>{p.titre.length>28?p.titre.slice(0,28)+"…":p.titre}</button>
+                  ))}
+                </div>
               </div>
             )}
-            <Btn onClick={add} variant="accent" style={{ width:"100%" }}>+ Ajouter</Btn>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {Object.entries(SPACES).map(([sp,{c,icon}])=>{
+                const sel=newSpaces.includes(sp);
+                return <button key={sp} onClick={()=>setNewSpaces(s=>s.includes(sp)?s.filter(x=>x!==sp):[...s,sp])} style={{padding:"6px 12px",borderRadius:999,border:`1px solid ${sel?c:C.border}`,background:sel?c+"20":"transparent",color:sel?c:C.muted,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>{icon} {sp}</button>;
+              })}
+            </div>
+            <Btn onClick={add} variant="accent" style={{width:"100%"}}>+ Ajouter</Btn>
           </div>
         </div>
 
-        {items.length > 0 && (
-          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
-            <span style={{ fontSize:12,color:C.muted }}>{doneCount}/{items.length} terminés · {activeCount} actifs</span>
-            <div style={{ flex:1, maxWidth:160 }}><ProgressBar value={items.length?doneCount/items.length*100:0} color={level.c} /></div>
+        {items.length>0&&(
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+            <span style={{fontSize:12,color:C.muted}}>{doneCount}/{items.length} terminés · {activeCount} actifs</span>
+            <div style={{flex:1,maxWidth:160}}><ProgressBar value={items.length?doneCount/items.length*100:0} color={level.c}/></div>
           </div>
         )}
         {items.length===0
-          ? <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucun objectif {level.label.toLowerCase()}.</div>
-          : items.map(obj => <ObjectifCard key={obj.id} obj={obj} levelColor={level.c} levelId={tab} onUpdate={u=>save({...goals,[tab]:items.map(o=>o.id===u.id?u:o)})} onDelete={id=>save({...goals,[tab]:items.filter(o=>o.id!==id)})} />)
+          ?<div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucun objectif {level.label.toLowerCase()}.</div>
+          :items.map(obj=><ObjectifCard key={obj.id} obj={obj} levelColor={level.c} levelId={tab} allGoals={goals} onOpenEdit={o=>setEditObj(o)}/>)
         }
       </div>
+
+      {editObj&&(
+        <ObjectifEditModal
+          obj={editObj} levelId={tab} allGoals={goals}
+          onUpdate={u=>{save({...goals,[tab]:(goals[tab]||[]).map(o=>o.id===u.id?u:o)});setEditObj(null);}}
+          onDelete={id=>{save({...goals,[tab]:(goals[tab]||[]).filter(o=>o.id!==id)});setEditObj(null);}}
+          onClose={()=>setEditObj(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1239,14 +1329,16 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
     dateDebut:item.dateDebut||"", dateFin:item.dateFin||"", dateFinType:item.dateFinType||"duedate",
     statut:item.statut||"a_planifier", dateAssignee:item.dateAssignee||"",
     waitingFor:item.waitingFor||"", waitingNote:item.waitingNote||"", sousTaches:item.sousTaches||[],
+    objectifMensuelId:item.objectifMensuelId||"",
   });
+  const mensuelGoals = (getLS("lp_goals",{}).mensuel||[]);
   const [newSubName, setNewSubName] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
   const set = p => setForm(f=>({...f,...p}));
 
   const handleSave = () => {
     const u={name:form.name,gtd:form.gtd,sphere:form.sphere||undefined};
-    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin||undefined,dateFinType:form.dateFinType,statut:form.statut,sousTaches:form.sousTaches});
+    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin||undefined,dateFinType:form.dateFinType,statut:form.statut,sousTaches:form.sousTaches,objectifMensuelId:form.objectifMensuelId||undefined});
     else if(form.gtd==="memo") u.dateAssignee=form.dateAssignee||undefined;
     else if(form.gtd==="waiting") Object.assign(u,{waitingFor:form.waitingFor,waitingNote:form.waitingNote||undefined});
     onSave(u); onClose();
@@ -1312,6 +1404,17 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
               ))}
             </div>
           </div>
+          {mensuelGoals.length>0&&(
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>⭐ Objectif mensuel</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                <button onClick={()=>set({objectifMensuelId:""})} style={{textAlign:"left",padding:"7px 12px",borderRadius:10,border:`1px solid ${!form.objectifMensuelId?C.accent:C.border}`,background:!form.objectifMensuelId?C.accentBg:"transparent",color:!form.objectifMensuelId?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>— Aucun</button>
+                {mensuelGoals.map(o=>(
+                  <button key={o.id} onClick={()=>set({objectifMensuelId:o.id})} style={{textAlign:"left",padding:"7px 12px",borderRadius:10,border:`1px solid ${form.objectifMensuelId===o.id?C.amber:C.border}`,background:form.objectifMensuelId===o.id?C.amberBg:"transparent",color:form.objectifMensuelId===o.id?C.amber:C.text,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{o.titre}</button>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{marginBottom:14}}>
             <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Sous-tâches</div>
             {form.sousTaches.map(s=>(
