@@ -501,7 +501,7 @@ function WeeklyCalendar() {
   );
 
   return (
-    <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: "12px 12px", marginBottom: 16 }}>
+    <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: "12px 10px", marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <NavBtn dir={-1} />
         <span style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>{wkLabel}</span>
@@ -514,19 +514,31 @@ function WeeklyCalendar() {
           const items = getItems(ds);
           return (
             <div key={ds} style={{
-              display: "flex", flexDirection: "column", alignItems: "center",
-              gap: 4, padding: "6px 2px", borderRadius: 10,
-              background: isToday ? "rgba(139,92,246,0.13)" : "transparent",
-              border: `1px solid ${isToday ? C.accent + "50" : "transparent"}`,
+              display: "flex", flexDirection: "column", alignItems: "stretch",
+              gap: 3, padding: "6px 3px 8px", borderRadius: 10,
+              minHeight: 120,
+              background: isToday ? "rgba(139,92,246,0.13)" : "rgba(255,255,255,0.02)",
+              border: `1px solid ${isToday ? C.accent + "50" : C.border + "44"}`,
             }}>
-              <div style={{ fontSize: 9, color: C.faint, textTransform: "uppercase", letterSpacing: "0.05em" }}>{DAY_SHORT[i]}</div>
-              <div style={{ fontSize: 15, fontWeight: isToday ? 700 : 400, color: isToday ? C.accent : C.text, lineHeight: 1 }}>{d.getDate()}</div>
-              <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 2, minHeight: 12 }}>
-                {items.slice(0, 5).map(item => {
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 9, color: C.faint, textTransform: "uppercase", letterSpacing: "0.04em" }}>{DAY_SHORT[i]}</div>
+                <div style={{ fontSize: 14, fontWeight: isToday ? 700 : 500, color: isToday ? C.accent : C.text, lineHeight: 1.4 }}>{d.getDate()}</div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+                {items.slice(0, 4).map(item => {
                   const col = SPHERES[item.sphere]?.c || (item._type === "memo" ? C.blue : C.accent);
-                  return <div key={item.id} style={{ height: 3, borderRadius: 2, background: col }} title={item.name} />;
+                  return (
+                    <div key={item.id} title={item.name} style={{
+                      fontSize: 9, color: col, background: col + "25",
+                      borderLeft: `2px solid ${col}`, borderRadius: "0 3px 3px 0",
+                      padding: "2px 3px", overflow: "hidden",
+                      textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3,
+                    }}>{item.name}</div>
+                  );
                 })}
-                {items.length > 5 && <div style={{ fontSize: 8, color: C.faint, textAlign: "center", lineHeight: 1 }}>+{items.length - 5}</div>}
+                {items.length > 4 && (
+                  <div style={{ fontSize: 8, color: C.faint, textAlign: "center", marginTop: 1 }}>+{items.length - 4}</div>
+                )}
               </div>
             </div>
           );
@@ -2542,7 +2554,7 @@ export default function App() {
   const [logsOpen, setLogsOpen] = useState(false);
   const [viewMode, setViewMode] = useState(()=>getLS("lp_view_mode","pc"));
   const touchRef = useRef(null);
-  const mobile = viewMode === "mobile";
+  const mobile = viewMode === "mobile" && window.innerWidth >= 600;
 
   const setView = v => { setViewMode(v); setLS("lp_view_mode", v); };
 
