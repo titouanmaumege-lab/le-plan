@@ -452,9 +452,11 @@ function MonthCalendar() {
 }
 
 function WeeklyCalendar() {
-  const { todos } = useTodos();
+  const { todos, updateTodo, deleteTodo, toggleDone } = useTodos();
   const today = todayStr();
   const [offset, setOffset] = useState(0);
+  const [editId, setEditId] = useState(null);
+  const editItem = editId ? todos.find(t => t.id === editId) : null;
 
   const now = new Date();
   const dow = (now.getDay() + 6) % 7;
@@ -468,21 +470,24 @@ function WeeklyCalendar() {
 
   const DAY_SHORT = ["L","M","M","J","V","S","D"];
 
-  const getItems = ds => {
-    const d = new Date(ds + "T12:00:00");
-    const out = [];
-    todos.forEach(t => {
-      if (t.done) return;
-      if (t.gtd === "projet" && t.dateDebut && t.dateFin) {
-        const s = new Date(t.dateDebut + "T12:00:00");
-        const e = new Date(t.dateFin + "T12:00:00");
-        if (s <= d && e >= d) out.push({ ...t, _type: "projet" });
-      } else if (t.dateAssignee === ds) {
-        out.push({ ...t, _type: t.gtd === "memo" ? "memo" : "todo" });
-      }
-    });
-    return out;
-  };
+  // Separate: spanning (multi-day projets) vs point (single-day)
+  const pointEvents = Object.fromEntries(days7.map(ds => [ds, []]));
+  const spanning = [];
+  todos.forEach(t => {
+    if (t.done) return;
+    if (t.gtd === "projet" && t.dateDebut && t.dateFin) {
+      const tS = new Date(t.dateDebut + "T12:00:00");
+      const tE = new Date(t.dateFin + "T12:00:00");
+      let sc = -1, ec = -1;
+      days7.forEach((ds, col) => {
+        const d = new Date(ds + "T12:00:00");
+        if (d >= tS && d <= tE) { if (sc === -1) sc = col; ec = col; }
+      });
+      if (sc !== -1) spanning.push({ todo: t, sc, ec });
+    } else if (t.dateAssignee && pointEvents[t.dateAssignee] !== undefined) {
+      pointEvents[t.dateAssignee].push(t);
+    }
+  });
 
   const wkLabel = offset === 0 ? "Cette semaine"
     : offset === 1 ? "Semaine prochaine"
@@ -494,57 +499,92 @@ function WeeklyCalendar() {
 
   const NavBtn = ({ dir }) => (
     <button onClick={() => setOffset(o => o + dir)} style={{
-      background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8,
-      color: C.muted, fontSize: 16, cursor: "pointer", padding: "2px 10px",
-      fontFamily: "inherit", lineHeight: 1,
+      background:"transparent", border:`1px solid ${C.border}`, borderRadius:8,
+      color:C.muted, fontSize:16, cursor:"pointer", padding:"2px 10px", fontFamily:"inherit", lineHeight:1,
     }}>{dir < 0 ? "‹" : "›"}</button>
   );
 
+  const pill = (col, name, id) => (
+    <div key={id} onClick={()=>setEditId(id)} style={{
+      fontSize:9, color:col, background:col+"25",
+      borderLeft:`2px solid ${col}`, borderRadius:"0 3px 3px 0",
+      padding:"2px 4px", overflow:"hidden", textOverflow:"ellipsis",
+      whiteSpace:"nowrap", lineHeight:1.4, cursor:"pointer",
+    }} title={name}>{name}</div>
+  );
+
   return (
-    <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: "12px 10px", marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <NavBtn dir={-1} />
-        <span style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>{wkLabel}</span>
-        <NavBtn dir={1} />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
-        {days7.map((ds, i) => {
-          const d = new Date(ds + "T12:00:00");
-          const isToday = ds === today;
-          const items = getItems(ds);
-          return (
-            <div key={ds} style={{
-              display: "flex", flexDirection: "column", alignItems: "stretch",
-              gap: 3, padding: "6px 3px 8px", borderRadius: 10,
-              minHeight: 120,
-              background: isToday ? "rgba(139,92,246,0.13)" : "rgba(255,255,255,0.02)",
-              border: `1px solid ${isToday ? C.accent + "50" : C.border + "44"}`,
-            }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 9, color: C.faint, textTransform: "uppercase", letterSpacing: "0.04em" }}>{DAY_SHORT[i]}</div>
-                <div style={{ fontSize: 14, fontWeight: isToday ? 700 : 500, color: isToday ? C.accent : C.text, lineHeight: 1.4 }}>{d.getDate()}</div>
+    <>
+      <div style={{ background:C.surface2, border:`1px solid ${C.border}`, borderRadius:18, padding:"12px 10px", marginBottom:16 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+          <NavBtn dir={-1} />
+          <span style={{ fontSize:11, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>{wkLabel}</span>
+          <NavBtn dir={1} />
+        </div>
+
+        {/* Day headers */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:4 }}>
+          {days7.map((ds, i) => {
+            const isToday = ds === today;
+            const dn = new Date(ds + "T12:00:00").getDate();
+            return (
+              <div key={ds} style={{
+                textAlign:"center", padding:"5px 2px 6px", borderRadius:8,
+                background: isToday ? "rgba(139,92,246,0.13)" : "transparent",
+                border:`1px solid ${isToday ? C.accent+"50" : "transparent"}`,
+              }}>
+                <div style={{ fontSize:9, color:C.faint, textTransform:"uppercase", letterSpacing:"0.04em" }}>{DAY_SHORT[i]}</div>
+                <div style={{ fontSize:15, fontWeight:isToday?700:500, color:isToday?C.accent:C.text, lineHeight:1.3 }}>{dn}</div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-                {items.slice(0, 4).map(item => {
-                  const col = SPHERES[item.sphere]?.c || (item._type === "memo" ? C.blue : C.accent);
-                  return (
-                    <div key={item.id} title={item.name} style={{
-                      fontSize: 9, color: col, background: col + "25",
-                      borderLeft: `2px solid ${col}`, borderRadius: "0 3px 3px 0",
-                      padding: "2px 3px", overflow: "hidden",
-                      textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3,
-                    }}>{item.name}</div>
-                  );
+            );
+          })}
+        </div>
+
+        {/* Spanning events — CSS grid-column span */}
+        {spanning.length > 0 && (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:4 }}>
+            {spanning.map(({ todo, sc, ec }) => {
+              const col = SPHERES[todo.sphere]?.c || C.accent;
+              return (
+                <div key={todo.id} onClick={()=>setEditId(todo.id)} style={{
+                  gridColumn:`${sc+1} / ${ec+2}`,
+                  fontSize:10, fontWeight:500, color:col, background:col+"28",
+                  borderLeft:`3px solid ${col}`, borderRadius:"0 5px 5px 0",
+                  padding:"4px 7px", overflow:"hidden", textOverflow:"ellipsis",
+                  whiteSpace:"nowrap", lineHeight:1.4, cursor:"pointer",
+                }} title={todo.name}>{todo.name}</div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Single-day events per column */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3 }}>
+          {days7.map(ds => {
+            const items = pointEvents[ds] || [];
+            return (
+              <div key={ds} style={{ display:"flex", flexDirection:"column", gap:2, minHeight:80 }}>
+                {items.slice(0,4).map(item => {
+                  const col = SPHERES[item.sphere]?.c || (item.gtd==="memo" ? C.blue : C.accent);
+                  return pill(col, item.name, item.id);
                 })}
-                {items.length > 4 && (
-                  <div style={{ fontSize: 8, color: C.faint, textAlign: "center", marginTop: 1 }}>+{items.length - 4}</div>
-                )}
+                {items.length > 4 && <div style={{ fontSize:8, color:C.faint, textAlign:"center" }}>+{items.length-4}</div>}
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
-    </div>
+
+      {editItem && (
+        <EditModal
+          item={editItem}
+          onSave={p=>{updateTodo(editId,p);setEditId(null);}}
+          onDelete={id=>{deleteTodo(id);setEditId(null);}}
+          onToggleDone={id=>{toggleDone(id);setEditId(null);}}
+          onClose={()=>setEditId(null)}
+        />
+      )}
+    </>
   );
 }
 
