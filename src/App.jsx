@@ -275,7 +275,6 @@ const BOTTOM_NAV = [
   { id: "workperf",  icon: "⏱", label: "WorkPerf" },
   { id: "daily",     icon: "✦",  label: "Daily" },
   { id: "objectifs", icon: "▲",  label: "Objectifs" },
-  { id: "logs",      icon: "◈",  label: "Log" },
 ];
 
 function BottomNav({ current, onNav }) {
@@ -2417,10 +2416,26 @@ function LogsModule({ onBack }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
   const [module, setModule] = useState("dashboard");
-  const inBottomNav = BOTTOM_NAV.some(n => n.id === module);
+  const [logsOpen, setLogsOpen] = useState(false);
+  const touchRef = useRef(null);
+
+  const onTouchStart = e => {
+    touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const onTouchEnd = e => {
+    if (!touchRef.current) return;
+    const dx = e.changedTouches[0].clientX - touchRef.current.x;
+    const dy = e.changedTouches[0].clientY - touchRef.current.y;
+    touchRef.current = null;
+    if (!logsOpen && Math.abs(dx) > Math.abs(dy) && dx < -70) setLogsOpen(true);
+  };
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Inter',system-ui,sans-serif" }}>
+    <div
+      style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Inter',system-ui,sans-serif" }}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
       <div key={module} className="fade-in">
         {module === "dashboard" && <Dashboard onNav={setModule} />}
         {module === "objectifs" && <ObjectifsModule />}
@@ -2428,9 +2443,41 @@ export default function App() {
         {module === "workperf"  && <WorkPerfModule />}
         {module === "daily"     && <DailyPaperModule />}
         {module === "todo"      && <TodoModule />}
-        {module === "logs"      && <LogsModule onBack={() => setModule("dashboard")} />}
       </div>
       <BottomNav current={module} onNav={setModule} />
+      {/* Logs slide-over panel */}
+      <div style={{ position:"fixed", inset:0, zIndex:200, pointerEvents:logsOpen?"all":"none" }}>
+        <div
+          onClick={()=>setLogsOpen(false)}
+          style={{
+            position:"absolute", inset:0,
+            background:"rgba(0,0,0,0.5)",
+            opacity:logsOpen?1:0,
+            transition:"opacity 0.25s ease",
+          }}
+        />
+        <div
+          onTouchStart={e=>{ touchRef.current={ x:e.touches[0].clientX, y:e.touches[0].clientY }; e.stopPropagation(); }}
+          onTouchEnd={e=>{
+            if(!touchRef.current) return;
+            const dx=e.changedTouches[0].clientX-touchRef.current.x;
+            const dy=e.changedTouches[0].clientY-touchRef.current.y;
+            touchRef.current=null;
+            if(Math.abs(dx)>Math.abs(dy)&&dx>70) setLogsOpen(false);
+            e.stopPropagation();
+          }}
+          style={{
+            position:"absolute", top:0, right:0, bottom:0,
+            width:"92%", maxWidth:500,
+            background:C.bg,
+            transform:logsOpen?"translateX(0)":"translateX(100%)",
+            transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)",
+            overflowY:"auto",
+          }}
+        >
+          <LogsModule onBack={()=>setLogsOpen(false)} />
+        </div>
+      </div>
     </div>
   );
 }
