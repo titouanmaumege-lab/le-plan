@@ -2556,7 +2556,7 @@ export default function App() {
 
   const inner = (
     <div
-      style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'Inter',system-ui,sans-serif", position:"relative" }}
+      style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'Inter',system-ui,sans-serif", position:"relative", overflowX:"hidden" }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
@@ -2593,7 +2593,7 @@ export default function App() {
   if (mobile) {
     return (
       <div style={{ minHeight:"100vh", background:"#06060f", display:"flex", justifyContent:"center", alignItems:"flex-start" }}>
-        <div style={{ width:390, minHeight:"100vh", boxShadow:"0 0 0 1px rgba(139,92,246,0.2), 0 24px 80px rgba(0,0,0,0.8)" }}>
+        <div style={{ width:390, minHeight:"100vh", overflowX:"hidden", boxShadow:"0 0 0 1px rgba(139,92,246,0.2), 0 24px 80px rgba(0,0,0,0.8)" }}>
           {inner}
         </div>
       </div>
