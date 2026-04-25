@@ -533,7 +533,7 @@ function BiWeeklyPlanning() {
   );
 }
 
-function Dashboard({ onNav }) {
+function Dashboard({ onNav, onOpenLogs }) {
   const t = todayStr();
   const [habits, setHabits]     = useState(() => getLS("lp_habits", []));
   const [sessions, setSessions]  = useState(() => getLS("lp_workperf", []));
@@ -627,7 +627,9 @@ function Dashboard({ onNav }) {
           <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.14em", color: C.accent, textTransform: "uppercase" }}>LE PLAN</span>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 12, color: C.muted }}>{headerDate}</span>
-            <span onClick={() => onNav("logs")} style={{ fontSize: 14, color: C.faint, cursor: "pointer" }}>◈</span>
+            <div onClick={onOpenLogs} style={{ display:"flex", flexDirection:"column", gap:4, cursor:"pointer", padding:"4px 6px" }}>
+              {[0,1,2].map(i=><div key={i} style={{width:18,height:2,background:C.muted,borderRadius:2}}/>)}
+            </div>
           </div>
         </div>
         <div style={{ marginTop: 8 }}>
@@ -2559,7 +2561,7 @@ export default function App() {
       onTouchEnd={onTouchEnd}
     >
       <div key={module} className="fade-in">
-        {module === "dashboard" && <Dashboard onNav={setModule} />}
+        {module === "dashboard" && <Dashboard onNav={setModule} onOpenLogs={()=>setLogsOpen(true)} />}
         {module === "objectifs" && <ObjectifsModule />}
         {module === "habitudes" && <HabitudesModule />}
         {module === "workperf"  && <WorkPerfModule />}
