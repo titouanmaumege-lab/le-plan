@@ -276,10 +276,11 @@ const BOTTOM_NAV = [
   { id: "objectifs", icon: "⭐", label: "Objectifs" },
 ];
 
-function BottomNav({ current, onNav }) {
+function BottomNav({ current, onNav, mobile }) {
   return (
     <div style={{
-      position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
+      position: "fixed", bottom: 0, zIndex: 50,
+      ...(mobile ? { left:"50%", transform:"translateX(-50%)", width:390 } : { left:0, right:0 }),
       height: 64, background: "rgba(13,13,26,0.96)", backdropFilter: "blur(24px)",
       borderTop: `1px solid ${C.border}`,
       display: "flex", alignItems: "stretch",
@@ -2381,7 +2382,7 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
   );
 }
 
-function LogsModule({ onBack }) {
+function LogsModule({ onBack, viewMode, onSetViewMode }) {
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
   const [daily, setDaily]   = useState(() => getLS("lp_daily", {}));
   const [sessions]          = useState(() => getLS("lp_workperf", []));
@@ -2436,6 +2437,20 @@ function LogsModule({ onBack }) {
     <div>
       <PageHeader title="📋 Logs" onBack={onBack} />
       <div style={{padding:"16px 16px 100px"}}>
+        {onSetViewMode&&(
+          <div style={{display:"flex",gap:6,marginBottom:20}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",alignSelf:"center",marginRight:4}}>Vue</div>
+            {[["pc","🖥 PC"],["mobile","📱 Mobile"]].map(([v,lbl])=>(
+              <button key={v} onClick={()=>onSetViewMode(v)} style={{
+                padding:"6px 18px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",
+                border:`1px solid ${viewMode===v?C.accent:C.border}`,
+                background:viewMode===v?C.accentBg:"transparent",
+                color:viewMode===v?C.accent:C.muted,
+                fontWeight:viewMode===v?600:400,
+              }}>{lbl}</button>
+            ))}
+          </div>
+        )}
         <div style={{display:"flex",gap:6,marginBottom:16}}>
           {[["semaine","Semaine"],["mois","Mois"],["trimestre","Trimestre"]].map(([g,lbl])=>(
             <button key={g} onClick={()=>setGroupBy(g)} style={{
@@ -2518,9 +2533,13 @@ function LogsModule({ onBack }) {
 // APP ROOT
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [module, setModule] = useState("dashboard");
+  const [module, setModule]   = useState("dashboard");
   const [logsOpen, setLogsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState(()=>getLS("lp_view_mode","pc"));
   const touchRef = useRef(null);
+  const mobile = viewMode === "mobile";
+
+  const setView = v => { setViewMode(v); setLS("lp_view_mode", v); };
 
   const onTouchStart = e => {
     touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -2530,12 +2549,12 @@ export default function App() {
     const dx = e.changedTouches[0].clientX - touchRef.current.x;
     const dy = e.changedTouches[0].clientY - touchRef.current.y;
     touchRef.current = null;
-    if (!logsOpen && Math.abs(dx) > Math.abs(dy) && dx < -70) setLogsOpen(true);
+    if (module === "dashboard" && !logsOpen && Math.abs(dx) > Math.abs(dy) && dx < -70) setLogsOpen(true);
   };
 
-  return (
+  const inner = (
     <div
-      style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Inter',system-ui,sans-serif" }}
+      style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'Inter',system-ui,sans-serif", position:"relative" }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
@@ -2547,18 +2566,10 @@ export default function App() {
         {module === "daily"     && <DailyPaperModule />}
         {module === "todo"      && <TodoModule />}
       </div>
-      <BottomNav current={module} onNav={setModule} />
+      <BottomNav current={module} onNav={setModule} mobile={mobile} />
       {/* Logs slide-over panel */}
       <div style={{ position:"fixed", inset:0, zIndex:200, pointerEvents:logsOpen?"all":"none" }}>
-        <div
-          onClick={()=>setLogsOpen(false)}
-          style={{
-            position:"absolute", inset:0,
-            background:"rgba(0,0,0,0.5)",
-            opacity:logsOpen?1:0,
-            transition:"opacity 0.25s ease",
-          }}
-        />
+        <div onClick={()=>setLogsOpen(false)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.5)", opacity:logsOpen?1:0, transition:"opacity 0.25s ease" }} />
         <div
           onTouchStart={e=>{ touchRef.current={ x:e.touches[0].clientX, y:e.touches[0].clientY }; e.stopPropagation(); }}
           onTouchEnd={e=>{
@@ -2569,18 +2580,22 @@ export default function App() {
             if(Math.abs(dx)>Math.abs(dy)&&dx>70) setLogsOpen(false);
             e.stopPropagation();
           }}
-          style={{
-            position:"absolute", top:0, right:0, bottom:0,
-            width:"92%", maxWidth:500,
-            background:C.bg,
-            transform:logsOpen?"translateX(0)":"translateX(100%)",
-            transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)",
-            overflowY:"auto",
-          }}
+          style={{ position:"absolute", top:0, right:0, bottom:0, width:"92%", maxWidth:500, background:C.bg, transform:logsOpen?"translateX(0)":"translateX(100%)", transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)", overflowY:"auto" }}
         >
-          <LogsModule onBack={()=>setLogsOpen(false)} />
+          <LogsModule onBack={()=>setLogsOpen(false)} viewMode={viewMode} onSetViewMode={setView} />
         </div>
       </div>
     </div>
   );
+
+  if (mobile) {
+    return (
+      <div style={{ minHeight:"100vh", background:"#06060f", display:"flex", justifyContent:"center", alignItems:"flex-start" }}>
+        <div style={{ width:390, minHeight:"100vh", boxShadow:"0 0 0 1px rgba(139,92,246,0.2), 0 24px 80px rgba(0,0,0,0.8)" }}>
+          {inner}
+        </div>
+      </div>
+    );
+  }
+  return inner;
 }
