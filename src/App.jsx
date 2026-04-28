@@ -2655,7 +2655,7 @@ export default function App({ session, signOut }) {
   const [module, setModule]   = useState("dashboard");
   const [logsOpen, setLogsOpen] = useState(false);
   const [viewMode, setViewMode] = useState(()=>getLS("lp_view_mode","pc"));
-  const [syncStatus, setSyncStatus] = useState(null); // null | "saving" | "ok" | "error"
+  const [syncStatus, setSyncStatus] = useState(null);
   const touchRef = useRef(null);
   const mobile = viewMode === "mobile" && window.innerWidth >= 600;
 
@@ -2677,16 +2677,6 @@ export default function App({ session, signOut }) {
     if (module === "dashboard" && !logsOpen && Math.abs(dx) > Math.abs(dy) && dx < -70) setLogsOpen(true);
   };
 
-  const syncBadge = (
-    <div style={{ position:"fixed", top:12, right:16, zIndex:9999, padding:"5px 12px", borderRadius:999, fontSize:12, fontWeight:600,
-      background: syncStatus==="ok" ? "rgba(16,185,129,0.2)" : syncStatus==="error" ? "rgba(239,68,68,0.2)" : syncStatus==="saving" ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.05)",
-      color: syncStatus==="ok" ? C.green : syncStatus==="error" ? C.red : syncStatus==="saving" ? C.accent : C.faint,
-      border: `1px solid ${syncStatus==="ok" ? C.green : syncStatus==="error" ? C.red : syncStatus==="saving" ? C.accent : "rgba(255,255,255,0.08)"}`,
-      transition:"all 0.3s",
-    }}>
-      {syncStatus==="saving" ? "⏳ Sync…" : syncStatus==="ok" ? "✓ Sync" : syncStatus==="error" ? "✗ Erreur" : "☁"}
-    </div>
-  );
 
   const inner = (
     <div
@@ -2726,15 +2716,12 @@ export default function App({ session, signOut }) {
 
   if (mobile) {
     return (
-      <>
-        {syncBadge}
-        <div style={{ minHeight:"100vh", background:"#06060f", display:"flex", justifyContent:"center", alignItems:"flex-start" }}>
-          <div style={{ width:390, minHeight:"100vh", overflowX:"hidden", boxShadow:"0 0 0 1px rgba(139,92,246,0.2), 0 24px 80px rgba(0,0,0,0.8)" }}>
-            {inner}
-          </div>
+      <div style={{ minHeight:"100vh", background:"#06060f", display:"flex", justifyContent:"center", alignItems:"flex-start" }}>
+        <div style={{ width:390, minHeight:"100vh", overflowX:"hidden", boxShadow:"0 0 0 1px rgba(139,92,246,0.2), 0 24px 80px rgba(0,0,0,0.8)" }}>
+          {inner}
         </div>
-      </>
+      </div>
     );
   }
-  return <>{syncBadge}{inner}</>;
+  return inner;
 }
