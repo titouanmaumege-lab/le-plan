@@ -286,7 +286,7 @@ const BOTTOM_NAV = [
   { id: "dashboard", icon: "🏠", label: "Home" },
   { id: "todo",      icon: "✅", label: "Todo" },
   { id: "habitudes", icon: "🔥", label: "Habitudes" },
-  { id: "workperf",  icon: "⏱️", label: "WorkPerf" },
+  { id: "workperf",  icon: "⏱️️", label: "WorkPerf" },
   { id: "daily",     icon: "📓", label: "Daily" },
   { id: "objectifs", icon: "⭐", label: "Objectifs" },
 ];
@@ -467,7 +467,7 @@ function MonthCalendar() {
 }
 
 function WeeklyCalendar() {
-  const { todos, updateTodo, deleteTodo, toggleDone } = useTodos();
+  const { todos, updateTodo, deleteTodo, toggleDone, toggleSousTache } = useTodos();
   const today = todayStr();
   const [offset, setOffset] = useState(0);
   const [editId, setEditId] = useState(null);
@@ -591,12 +591,10 @@ function WeeklyCalendar() {
       </div>
 
       {editItem && (
-        <EditModal
+        <TaskSummaryModal
           item={editItem}
-          onSave={p=>{updateTodo(editId,p);setEditId(null);}}
-          onDelete={id=>{deleteTodo(id);setEditId(null);}}
-          onToggleDone={id=>{toggleDone(id);setEditId(null);}}
-          onClose={()=>setEditId(null)}
+          onClose={() => setEditId(null)}
+          onToggleSousTache={(todoId, stId) => toggleSousTache(todoId, stId)}
         />
       )}
     </>
@@ -658,7 +656,7 @@ function Dashboard({ onNav, onOpenLogs }) {
 
   const doneH = habits.filter(h => (h.logs || []).includes(t)).length;
   const todaySessions = sessions.filter(s => s.date === t);
-  const deepToday = todaySessions.filter(s => s.type === "DEEP").reduce((a, s) => a + s.temps, 0);
+  const deepToday = todaySessions.reduce((a, s) => a + s.temps, 0);
   const pulseObjs = [
     ...(goals.trimestriel || []).map(o => ({ ...o, _level: "Trimestriel", _c: C.green })),
     ...(goals.mensuel || []).map(o => ({ ...o, _level: "Mensuel", _c: C.amber })),
@@ -678,7 +676,7 @@ function Dashboard({ onNav, onOpenLogs }) {
   const headerDate = now.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
 
   const QUICK_BTNS = [
-    { key: "session", icon: "⏱", label: "Session" },
+    { key: "session", icon: "⏱️", label: "Session" },
     { key: "journal", icon: "✦",  label: "Journal" },
     { key: "todo",    icon: "+",  label: "Todo" },
   ];
@@ -824,9 +822,9 @@ function Dashboard({ onNav, onOpenLogs }) {
             <CircularProgress value={doneH} max={habits.length || 1} size={52} color={doneH === habits.length && habits.length > 0 ? C.green : C.accent} />
             <span style={{ fontSize: 11, color: C.muted, textAlign: "center" }}>Habitudes</span>
           </div>
-          <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, padding: "14px 10px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+          <div onClick={() => onNav("workperf")} style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, padding: "14px 10px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, cursor: "pointer" }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: C.purple, lineHeight: 1 }}>{fmtMin(deepToday)}</div>
-            <span style={{ fontSize: 11, color: C.muted, textAlign: "center" }}>Travail Deep</span>
+            <span style={{ fontSize: 11, color: C.muted, textAlign: "center" }}>Travail total</span>
           </div>
         </div>
 
@@ -847,30 +845,33 @@ function Dashboard({ onNav, onOpenLogs }) {
           }
         </div>
 
-        {/* SESSIONS DU JOUR */}
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <span style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em" }}>⏱ Sessions du jour</span>
-            <span onClick={() => onNav("workperf")} style={{ fontSize: 12, color: C.accent, cursor: "pointer" }}>Voir tout →</span>
-          </div>
-          {todaySessions.length === 0
-            ? <p style={{ fontSize: 13, color: C.faint }}>Aucune session. <span onClick={() => setQAction("session")} style={{ color: C.accent, cursor: "pointer" }}>+ Ajouter</span></p>
-            : todaySessions.map(s => {
-                const tc = WP_TYPE_C[s.type] || C.muted;
+        {/* PROJETS EN COURS */}
+        {(() => {
+          const allTodos = getLS("leplan_todos", []);
+          const enCours = allTodos.filter(t => t.gtd === "projet" && !t.done && getProjectStatus(t) === "en_cours");
+          if (!enCours.length) return null;
+          return (
+            <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: 16, marginBottom: 16 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: C.green, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>🟢 Projets en cours</div>
+                <span onClick={() => onNav("todo")} style={{ fontSize: 12, color: C.accent, cursor: "pointer" }}>Voir tout →</span>
+              </div>
+              {enCours.map(p => {
+                const sc = SPHERES[p.sphere]?.c || C.border;
                 return (
-                  <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, marginBottom: 6, background: C.surface2, border: `1px solid ${C.border}`, borderLeft: `3px solid ${tc}` }}>
+                  <div key={p.id} onClick={() => onNav("todo")} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, marginBottom: 6, background: C.surface3, border: `1px solid ${C.border}`, borderLeft: `3px solid ${sc}`, cursor: "pointer" }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{s.tache}</div>
-                      <span style={{ fontSize: 11, color: tc, fontWeight: 600 }}>{s.type}</span>
-                      {" · "}
-                      <span style={{ fontSize: 11, color: C.muted }}>{s.domaine}</span>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{p.name}</div>
+                      {p.dateFin && <div style={{ fontSize: 11, color: C.muted }}>→ {p.dateFin}</div>}
                     </div>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: C.accent }}>{fmtMin(s.temps)}</span>
+                    {p.sphere && <span style={{ fontSize: 10, color: sc }}>{SPHERES[p.sphere]?.label}</span>}
                   </div>
                 );
-              })
-          }
-        </div>
+              })}
+            </div>
+          );
+        })()}
+
       </div>
     </div>
   );
@@ -1169,9 +1170,18 @@ const MATRICES = {
   nuni: { label: "⚫ Ni urgent ni important",  short: "—" },
 };
 const PROJ_STATUTS = {
-  a_planifier: { label: "À planifier", c: C.muted },
-  en_cours:    { label: "En cours",    c: C.accent },
-  termine:     { label: "Terminé",     c: C.green },
+  a_planifier: { label: "À planifier", c: C.faint },
+  planifie:    { label: "Planifié",    c: C.blue },
+  en_cours:    { label: "En cours",    c: C.green },
+  depasse:     { label: "Dépassé",     c: C.red },
+};
+const getProjectStatus = (item) => {
+  const today = todayStr();
+  if (!item.dateFin) return "a_planifier";
+  if (item.dateFin < today) return "depasse";
+  const debut = item.dateDebut || item.dateFin;
+  if (debut <= today && today <= item.dateFin) return "en_cours";
+  return "planifie";
 };
 const migrateOneTodo = raw => {
   if (!raw) return null;
@@ -1237,12 +1247,94 @@ function useTodos() {
   return {todos,addTodo,updateTodo,deleteTodo,toggleDone,restoreTodo,classifyInbox,addSousTache,toggleSousTache,getByGTD,getByMatrice,getBySphere,getDoneItems,getProjectsForCalendar,getMemosForDate};
 }
 
+// ── TaskSummaryModal ──
+function TaskSummaryModal({ item, onClose, onToggleSousTache }) {
+  const today = todayStr();
+  const goals = getLS("lp_goals", {});
+  const mensuelGoals = goals.mensuel || [];
+  const linkedObj = item.objectifMensuelId ? mensuelGoals.find(o => o.id === item.objectifMensuelId) : null;
+  const daysLeft = item.dateFin
+    ? Math.ceil((new Date(item.dateFin + "T12:00:00") - new Date(today + "T12:00:00")) / 86400000)
+    : null;
+  const subs = item.sousTaches || [];
+  const sc = SPHERES[item.sphere]?.c || C.accent;
+  const doneSubs = subs.filter(s => s.done);
+
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex",
+      alignItems:"center", justifyContent:"center", zIndex:2000, padding:16,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: C.surface, border: `1px solid ${C.borderMid}`,
+        borderLeft: `4px solid ${sc}`, borderRadius: 20,
+        padding: 24, width: "100%", maxWidth: 380,
+      }}>
+        {/* Header */}
+        <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:16 }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:11, color:sc, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>
+              {SPHERES[item.sphere]?.label || "Projet"}
+            </div>
+            <div style={{ fontSize:17, fontWeight:700, color:C.text, lineHeight:1.3 }}>{item.name}</div>
+          </div>
+          <span onClick={onClose} style={{ fontSize:18, color:C.muted, cursor:"pointer", flexShrink:0 }}>✕</span>
+        </div>
+
+        {/* Days remaining */}
+        {daysLeft !== null && (
+          <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:12, background: daysLeft < 0 ? C.red+"22" : daysLeft <= 3 ? "#f59e0b22" : C.surface2, border:`1px solid ${daysLeft < 0 ? C.red+"44" : daysLeft <= 3 ? "#f59e0b44" : C.border}` }}>
+            <div style={{ fontSize:11, color:C.muted, marginBottom:2 }}>Temps restant</div>
+            <div style={{ fontSize:20, fontWeight:700, color: daysLeft < 0 ? C.red : daysLeft <= 3 ? "#f59e0b" : C.text }}>
+              {daysLeft < 0 ? `${Math.abs(daysLeft)} j. dépassé` : daysLeft === 0 ? "Aujourd'hui" : `${daysLeft} j.`}
+            </div>
+            {item.dateDebut && item.dateFin && (
+              <div style={{ fontSize:11, color:C.faint, marginTop:2 }}>{item.dateDebut} → {item.dateFin}</div>
+            )}
+          </div>
+        )}
+
+        {/* Linked monthly objective */}
+        {linkedObj && (
+          <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:12, background:C.surface2, border:`1px solid ${C.border}` }}>
+            <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>Objectif mensuel</div>
+            <div style={{ fontSize:13, color:C.text, fontWeight:500 }}>{linkedObj.text || linkedObj.name}</div>
+          </div>
+        )}
+
+        {/* Sub-tasks (interactive) */}
+        {subs.length > 0 && (
+          <div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+              <div style={{ fontSize:11, color:C.muted }}>Sous-tâches</div>
+              <div style={{ flex:1, height:3, borderRadius:2, background:"rgba(139,92,246,0.1)" }}>
+                <div style={{ height:"100%", width:`${doneSubs.length/subs.length*100}%`, background:sc, borderRadius:2, transition:"width 0.3s" }}/>
+              </div>
+              <span style={{ fontSize:11, color:C.muted, flexShrink:0 }}>{doneSubs.length}/{subs.length}</span>
+            </div>
+            {subs.map(s => (
+              <div key={s.id} onClick={() => onToggleSousTache(item.id, s.id)} style={{
+                display:"flex", alignItems:"center", gap:10,
+                padding:"8px 4px", borderBottom:`1px solid rgba(139,92,246,0.08)`,
+                cursor:"pointer", opacity: s.done ? 0.55 : 1,
+              }}>
+                <span style={{ fontSize:16, color: s.done ? C.green : C.borderMid, flexShrink:0 }}>{s.done ? "●" : "○"}</span>
+                <span style={{ fontSize:13, color:C.text, textDecoration: s.done ? "line-through" : "none" }}>{s.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── ProjectCard ──
 function ProjectCard({item, todos, onUpdate, onDelete, onToggleDone, onEdit}) {
   const [expanded, setExpanded] = useState(false);
   const [newSubName, setNewSubName] = useState("");
   const sc = SPHERES[item.sphere]?.c || C.border;
-  const st = PROJ_STATUTS[item.statut] || PROJ_STATUTS.a_planifier;
+  const st = PROJ_STATUTS[getProjectStatus(item)];
   const mat = MATRICES[item.matrice];
   const subs = item.sousTaches || [];
   const doneSubs = subs.filter(s=>s.done);
@@ -1379,14 +1471,6 @@ function ClarifyModal({item, onSave, onClose}) {
                 <button key={k} onClick={()=>set({dateFinType:k})} style={{flex:1,padding:9,borderRadius:10,border:`1px solid ${form.dateFinType===k?C.accent:C.border}`,background:form.dateFinType===k?C.accentBg:"transparent",color:form.dateFinType===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
               ))}
             </div>
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Statut</div>
-              <div style={{display:"flex",gap:6}}>
-                {Object.entries(PROJ_STATUTS).map(([k,v])=>(
-                  <button key={k} onClick={()=>set({statut:k})} style={{flex:1,padding:8,borderRadius:10,border:`1px solid ${form.statut===k?v.c:C.border}`,background:form.statut===k?v.c+"22":"transparent",color:form.statut===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
-                ))}
-              </div>
-            </div>
           </>)}
           {form.gtd==="memo"&&(
             <div style={{marginBottom:14}}>
@@ -1485,14 +1569,6 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
               <button key={k} onClick={()=>set({dateFinType:k})} style={{flex:1,padding:9,borderRadius:10,border:`1px solid ${form.dateFinType===k?C.accent:C.border}`,background:form.dateFinType===k?C.accentBg:"transparent",color:form.dateFinType===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
             ))}
           </div>
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:10,color:C.muted,marginBottom:8}}>Statut</div>
-            <div style={{display:"flex",gap:6}}>
-              {Object.entries(PROJ_STATUTS).map(([k,v])=>(
-                <button key={k} onClick={()=>set({statut:k})} style={{flex:1,padding:8,borderRadius:10,border:`1px solid ${form.statut===k?v.c:C.border}`,background:form.statut===k?v.c+"22":"transparent",color:form.statut===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
-              ))}
-            </div>
-          </div>
           {mensuelGoals.length>0&&(
             <div style={{marginBottom:14}}>
               <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>⭐ Objectif mensuel</div>
@@ -1563,6 +1639,7 @@ function TodoModule() {
   const [clarifyId, setClarifyId]   = useState(null);
   const [editId, setEditId]         = useState(null);
   const [sphereFilter, setSphereFilter] = useState("all");
+  const [projSubTab, setProjSubTab]  = useState("tous");
   const [sortMode, setSortMode]     = useState("dateFin");
   const [somedayQ, setSomedayQ]     = useState("");
   const [inboxText, setInboxText]   = useState("");
@@ -1575,6 +1652,14 @@ function TodoModule() {
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null),2000); };
   const resetCap = () => setCapForm({name:"",gtd:"inbox",sphere:null,matrice:null,dateDebut:"",dateFin:"",dateFinType:"duedate",statut:"a_planifier",dateAssignee:"",waitingFor:"",waitingNote:""});
+
+  const openCapture = (gtd) => {
+    const typeToGTD = { inbox:"inbox", projets:"projet", waiting:"waiting", memo:"memo", someday:"someday", fait:"inbox" };
+    const initialGTD = typeToGTD[gtd] || "inbox";
+    setCapForm(f=>({...f, gtd:initialGTD}));
+    setCaptureMode("full");
+    setShowCapture(true);
+  };
 
   const handleCapture = () => {
     if(!capForm.name.trim()) return;
@@ -1600,7 +1685,10 @@ function TodoModule() {
   const memos        = todos.filter(t=>t.gtd==="memo"&&!t.done).sort((a,b)=>(a.dateAssignee||"9999")>(b.dateAssignee||"9999")?1:-1);
   const somedayItems = getByGTD("someday").filter(t=>!t.done);
   const memosUrgentCnt = memos.filter(t=>t.dateAssignee===today).length;
-  const filteredP    = (sphereFilter==="all"?projets:projets.filter(t=>t.sphere===sphereFilter)).sort((a,b)=>{
+  const projEnCours    = projets.filter(t=>getProjectStatus(t)==="en_cours");
+  const projAPlanifier = projets.filter(t=>getProjectStatus(t)==="a_planifier");
+  const projSubFiltered = projSubTab==="en_cours" ? projEnCours : projSubTab==="a_planifier" ? projAPlanifier : projets;
+  const filteredP    = (sphereFilter==="all"?projSubFiltered:projSubFiltered.filter(t=>t.sphere===sphereFilter)).sort((a,b)=>{
     if(sortMode==="matrice") return (a.matrice||"z")>(b.matrice||"z")?1:-1;
     if(sortMode==="sphere") return (a.sphere||"z")>(b.sphere||"z")?1:-1;
     return (a.dateFin||"9999")>(b.dateFin||"9999")?1:-1;
@@ -1633,7 +1721,8 @@ function TodoModule() {
 
   return (
     <div>
-      <PageHeader title="✅ Todo" />
+      <PageHeader title="✅ Todo" action={<button onClick={()=>openCapture(tab)} style={{background:GRAD,border:"none",borderRadius:999,color:"#fff",fontSize:22,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",boxShadow:GLOW_SM,fontFamily:"inherit",lineHeight:1}}>+</button>}/>
+
 
       {/* Tab bar */}
       <div style={{position:"sticky",top:57,zIndex:10,background:"rgba(13,13,26,0.96)",backdropFilter:"blur(20px)",borderBottom:`1px solid ${C.border}`,padding:"10px 16px"}}>
@@ -1681,6 +1770,14 @@ function TodoModule() {
         {/* ── PROJETS ── */}
         {tab==="projets"&&(
           <div>
+            {/* Sous-onglets */}
+            <div style={{display:"flex",gap:6,marginBottom:12}}>
+              {[["tous","Tous",projets.length],["en_cours","En cours",projEnCours.length],["a_planifier","À planifier",projAPlanifier.length]].map(([k,l,cnt])=>(
+                <button key={k} onClick={()=>setProjSubTab(k)} style={{flex:1,padding:"8px 0",borderRadius:10,border:`1px solid ${projSubTab===k?C.accent:C.border}`,background:projSubTab===k?C.accentBg:"transparent",color:projSubTab===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",fontWeight:projSubTab===k?600:400}}>
+                  {l} {cnt>0&&<span style={{fontSize:10,opacity:0.7}}>({cnt})</span>}
+                </button>
+              ))}
+            </div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8}}>
               <div style={{display:"flex",gap:6,overflowX:"auto",flex:1,paddingBottom:4}}>
                 {[["all","Tous",C.accent],...Object.entries(SPHERES).map(([k,v])=>[k,v.label,v.c])].map(([k,l,c])=>(
@@ -1832,52 +1929,47 @@ function TodoModule() {
       {showCapture&&(
         <div onClick={()=>setShowCapture(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
           <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,margin:"0 auto",background:C.surface,borderRadius:"24px 24px 0 0",border:`1px solid ${C.border}`,padding:20,paddingBottom:"calc(20px + env(safe-area-inset-bottom))"}}>
-            <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:16}}>
-              {[["fast","⚡ Capture"],["full","Complet"]].map(([m,l])=>(
-                <button key={m} onClick={()=>setCaptureMode(m)} style={{padding:"7px 16px",borderRadius:999,border:`1px solid ${captureMode===m?C.accent:C.border}`,background:captureMode===m?C.accentBg:"transparent",color:captureMode===m?C.accent:C.muted,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
+            <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:14,textAlign:"center"}}>Nouvelle tâche</div>
+            <Input autoFocus value={capForm.name} onChange={v=>setCapForm(f=>({...f,name:v}))} onKeyDown={e=>e.key==="Enter"&&handleCapture()} placeholder="Nom de la tâche..."/>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Type</div>
+            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+              {[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["waiting","⏳ Waiting"],["someday","💭 Someday"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setCapForm(f=>({...f,gtd:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${capForm.gtd===k?C.accent:C.border}`,background:capForm.gtd===k?C.accentBg:"transparent",color:capForm.gtd===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
               ))}
             </div>
-            <Input autoFocus value={capForm.name} onChange={v=>setCapForm(f=>({...f,name:v}))} onKeyDown={e=>e.key==="Enter"&&captureMode==="fast"&&handleCapture()} placeholder={captureMode==="fast"?"Capture une idée ou tâche...":"Nom de la tâche..."}/>
-            {captureMode==="full"&&(
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Sphère</div>
+            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+              {Object.entries(SPHERES).map(([k,v])=>(
+                <button key={k} onClick={()=>setCapForm(f=>({...f,sphere:f.sphere===k?null:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${capForm.sphere===k?v.c:C.border}`,background:capForm.sphere===k?v.c+"22":"transparent",color:capForm.sphere===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
+              ))}
+            </div>
+            {capForm.gtd==="projet"&&(
               <div className="slide-up">
-                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Type GTD</div>
-                <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-                  {[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["waiting","⏳ Waiting"],["someday","💭 Someday"]].map(([k,l])=>(
-                    <button key={k} onClick={()=>setCapForm(f=>({...f,gtd:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${capForm.gtd===k?C.accent:C.border}`,background:capForm.gtd===k?C.accentBg:"transparent",color:capForm.gtd===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
+                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Matrice</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                  {Object.entries(MATRICES).map(([k,v])=>(
+                    <button key={k} onClick={()=>setCapForm(f=>({...f,matrice:f.matrice===k?null:k}))} style={{padding:"8px",borderRadius:12,border:`1px solid ${capForm.matrice===k?C.accent:C.border}`,background:capForm.matrice===k?C.accentBg:"transparent",color:capForm.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
                   ))}
                 </div>
-                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Sphère</div>
-                <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-                  {Object.entries(SPHERES).map(([k,v])=>(
-                    <button key={k} onClick={()=>setCapForm(f=>({...f,sphere:f.sphere===k?null:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${capForm.sphere===k?v.c:C.border}`,background:capForm.sphere===k?v.c+"22":"transparent",color:capForm.sphere===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
-                  ))}
-                </div>
-                {capForm.gtd==="projet"&&(
-                  <div className="slide-up">
-                    <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Matrice</div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-                      {Object.entries(MATRICES).map(([k,v])=>(
-                        <button key={k} onClick={()=>setCapForm(f=>({...f,matrice:f.matrice===k?null:k}))} style={{padding:"8px",borderRadius:12,border:`1px solid ${capForm.matrice===k?C.accent:C.border}`,background:capForm.matrice===k?C.accentBg:"transparent",color:capForm.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {capForm.gtd==="memo"&&(
-                  <div style={{marginTop:12}}>
-                    <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date assignée</div>
-                    <input type="date" value={capForm.dateAssignee} onChange={e=>setCapForm(f=>({...f,dateAssignee:e.target.value}))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-                  </div>
-                )}
-                {capForm.gtd==="waiting"&&(
-                  <div style={{marginTop:12}}>
-                    <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Attendu de</div>
-                    <Input value={capForm.waitingFor} onChange={v=>setCapForm(f=>({...f,waitingFor:v}))} placeholder="Nom de la personne..."/>
-                  </div>
-                )}
+                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date limite</div>
+                <input type="date" value={capForm.dateFin} onChange={e=>setCapForm(f=>({...f,dateFin:e.target.value}))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
               </div>
             )}
-            <div style={{marginTop:16}}>
-              <Btn onClick={handleCapture} variant="accent" style={{width:"100%"}}>{captureMode==="fast"?"Capturer →":"Ajouter"}</Btn>
+            {capForm.gtd==="memo"&&(
+              <div style={{marginTop:12}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date assignée</div>
+                <input type="date" value={capForm.dateAssignee} onChange={e=>setCapForm(f=>({...f,dateAssignee:e.target.value}))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+              </div>
+            )}
+            {capForm.gtd==="waiting"&&(
+              <div style={{marginTop:12}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Attendu de</div>
+                <Input value={capForm.waitingFor} onChange={v=>setCapForm(f=>({...f,waitingFor:v}))} placeholder="Nom de la personne..."/>
+              </div>
+            )}
+            <div style={{marginTop:16,display:"flex",gap:8}}>
+              <Btn onClick={()=>setShowCapture(false)} variant="ghost" style={{flex:1}}>Annuler</Btn>
+              <Btn onClick={handleCapture} variant="accent" style={{flex:2}}>Créer →</Btn>
             </div>
           </div>
         </div>
@@ -2131,7 +2223,7 @@ function WorkPerfModule() {
   const deepPct = totalToday>0 ? Math.round(deepToday/totalToday*100) : 0;
   return (
     <div>
-      <PageHeader title="⏱️ WorkPerf"
+      <PageHeader title="⏱️️ WorkPerf"
         action={<button onClick={()=>setShowForm(s=>!s)} style={{background:GRAD,color:"#fff",border:"none",padding:"7px 16px",borderRadius:12,fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:GLOW_SM}}>+ Session</button>}
       />
       <div style={{padding:"16px 16px 100px"}}>
@@ -2361,130 +2453,115 @@ function DailyPaperModule() {
 // LOGS
 // ─────────────────────────────────────────────────────────────────────────────
 function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteDaily, onUpdateDaily }) {
+  const [open, setOpen]     = useState(false);
   const [editing, setEditing] = useState(false);
   const t=todayStr(); const raw=daily[date]; const paperEntry=raw?djEntry(raw):null; const editEntry=djEntry(raw);
   const doneCount=habits.filter(h=>(h.logs||[]).includes(date)).length;
+  const sessionTotal=sessions.reduce((s,x)=>s+x.temps,0);
+  const hasContent=paperEntry||sessions.length>0||habits.length>0;
+
+  // Compact summary row
+  const summary=(
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",cursor:"pointer",userSelect:"none"}}>
+      <span style={{fontSize:12,fontWeight:600,color:date===t?C.accent:C.text,flex:1}}>{new Date(date+"T12:00:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})}</span>
+      {habits.length>0&&<span style={{fontSize:10,color:doneCount===habits.length?C.green:C.muted}}>🔥 {doneCount}/{habits.length}</span>}
+      {paperEntry&&<span style={{fontSize:10,color:C.blue}}>📝</span>}
+      {sessionTotal>0&&<span style={{fontSize:10,color:C.purple}}>⏱️ {fmtMin(sessionTotal)}</span>}
+      {!hasContent&&<span style={{fontSize:10,color:C.faint}}>—</span>}
+      <span style={{fontSize:10,color:C.faint}}>{open?"▲":"▼"}</span>
+    </div>
+  );
+
+  if(!open) return (
+    <div style={{marginLeft:8,marginBottom:4,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+      {summary}
+    </div>
+  );
+
   return (
-    <div style={{marginLeft:16,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden"}}>
-      <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
-        <span style={{fontSize:13,fontWeight:600,color:C.text}}>{fmtDate(date)}</span>
-        {date===t&&<Pill label="Aujourd'hui" color={C.accent} />}
-      </div>
-      <div style={{padding:"12px 14px"}}>
+    <div style={{marginLeft:8,marginBottom:4,background:C.surface2,border:`1px solid ${C.borderMid}`,borderRadius:10,overflow:"hidden"}}>
+      {summary}
+      <div style={{padding:"10px 12px",borderTop:`1px solid ${C.border}`}}>
         {habits.length>0&&(
-          <div style={{marginBottom:paperEntry||editing?10:0}}>
-            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Habitudes · {doneCount}/{habits.length}</div>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Habitudes</div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
               {habits.map(h=>{
                 const done=(h.logs||[]).includes(date);
-                return (
-                  <span key={h.id} onClick={()=>onToggleHabit(h.id,date)} style={{
-                    padding:"4px 12px",borderRadius:999,cursor:"pointer",fontSize:12,userSelect:"none",
-                    border:`1px solid ${done?"rgba(16,185,129,0.4)":C.border}`,
-                    background:done?"rgba(16,185,129,0.1)":"transparent",
-                    color:done?C.green:C.muted,transition:TR,
-                  }}>{h.emoji} {h.name}{done?" ✓":""}</span>
-                );
+                return <span key={h.id} onClick={()=>onToggleHabit(h.id,date)} style={{padding:"3px 10px",borderRadius:999,cursor:"pointer",fontSize:11,userSelect:"none",border:`1px solid ${done?"rgba(16,185,129,0.4)":C.border}`,background:done?"rgba(16,185,129,0.1)":"transparent",color:done?C.green:C.muted}}>{h.emoji} {h.name}{done?" ✓":""}</span>;
               })}
             </div>
           </div>
         )}
         {paperEntry&&!editing&&(
-          <div style={{borderTop:habits.length>0?`1px solid ${C.border}`:"none",paddingTop:habits.length>0?10:0}}>
-            <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-              <div style={{flex:1}}>
-                <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Daily Paper</div>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:4}}>
-                  <span style={{fontSize:12,color:C.muted}}>{paperEntry.type}</span>
-                  {paperEntry.morning&&<span style={{fontSize:12}}>⚡×{paperEntry.morning.length}</span>}
-                  {paperEntry.focus&&<span style={{fontSize:12}}>❖×{paperEntry.focus.length}</span>}
-                  {paperEntry.stress&&<span style={{fontSize:12}}>✶×{paperEntry.stress.length}</span>}
-                  {paperEntry.remark&&<span style={{fontSize:12,color:C.muted,fontStyle:"italic"}}>"{paperEntry.remark}"</span>}
-                </div>
-                {["trucs_faits","lotd","gratitude","reflexions"].some(k=>paperEntry[k])&&(
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6}}>
-                    {[{key:"trucs_faits",label:"Les trucs faits"},{key:"lotd",label:"LOTD"},{key:"gratitude",label:"Gratitude"},{key:"reflexions",label:"Réflexions"}].filter(s=>paperEntry[s.key]).map(({key,label})=>(
-                      <div key={key}>
-                        <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2}}>{label}</div>
-                        <div style={{fontSize:12,color:C.text,lineHeight:1.5,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{paperEntry[key]}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div style={{display:"flex",gap:5,flexShrink:0}}>
-                <Btn onClick={()=>setEditing(true)} variant="ghost" style={{fontSize:11,padding:"4px 10px",minHeight:32}}>✎</Btn>
-                <Btn onClick={()=>onDeleteDaily(date)} variant="ghost" style={{fontSize:11,padding:"4px 10px",color:C.red,borderColor:C.red+"40",minHeight:32}}>✕</Btn>
-              </div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Daily Paper</div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{paperEntry.type}{paperEntry.remark&&` · "${paperEntry.remark}"`}</div>
+            {["trucs_faits","lotd","gratitude","reflexions"].filter(k=>paperEntry[k]).map(k=>(
+              <div key={k} style={{fontSize:11,color:C.text,lineHeight:1.5,marginBottom:3,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{paperEntry[k]}</div>
+            ))}
+            <div style={{display:"flex",gap:6,marginTop:8}}>
+              <Btn onClick={()=>setEditing(true)} variant="ghost" style={{fontSize:11,padding:"3px 10px"}}>✎ Modifier</Btn>
+              <Btn onClick={()=>onDeleteDaily(date)} variant="ghost" style={{fontSize:11,padding:"3px 10px",color:C.red,borderColor:C.red+"40"}}>✕ Supprimer</Btn>
             </div>
           </div>
         )}
         {editing&&(
-          <div style={{borderTop:habits.length>0?`1px solid ${C.border}`:"none",paddingTop:habits.length>0?10:0}}>
-            <div style={{fontSize:10,color:C.accent,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>✎ Daily Paper</div>
+          <div style={{marginBottom:10}}>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
               <Select value={editEntry.type} options={DJ_TYPES} onChange={v=>onUpdateDaily(date,"type",v)} />
               <Input value={editEntry.remark} onChange={v=>onUpdateDaily(date,"remark",v)} placeholder="Remarque..." style={{flex:1}} />
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
-              <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-                <DJRating label="Matin"  options={DJ_ENERGY} value={editEntry.morning} onChange={v=>onUpdateDaily(date,"morning",v)} />
-                <DJRating label="Midi"   options={DJ_ENERGY} value={editEntry.noon}    onChange={v=>onUpdateDaily(date,"noon",v)} />
-                <DJRating label="Soir"   options={DJ_ENERGY} value={editEntry.evening} onChange={v=>onUpdateDaily(date,"evening",v)} />
-              </div>
-              <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-                <DJRating label="Focus"  options={DJ_FOCUS}  value={editEntry.focus}   onChange={v=>onUpdateDaily(date,"focus",v)} />
-                <DJRating label="Stress" options={DJ_STRESS} value={editEntry.stress}  onChange={v=>onUpdateDaily(date,"stress",v)} />
-              </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+              <DJRating label="Matin" options={DJ_ENERGY} value={editEntry.morning} onChange={v=>onUpdateDaily(date,"morning",v)} />
+              <DJRating label="Focus" options={DJ_FOCUS}  value={editEntry.focus}   onChange={v=>onUpdateDaily(date,"focus",v)} />
+              <DJRating label="Stress" options={DJ_STRESS} value={editEntry.stress} onChange={v=>onUpdateDaily(date,"stress",v)} />
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-              {[{key:"trucs_faits",label:"Les trucs faits",ph:"Activités..."},{key:"lotd",label:"LOTD",ph:"Appris..."},{key:"gratitude",label:"Gratitude",ph:"Reconnaissant..."},{key:"reflexions",label:"Réflexions",ph:"Réflexions..."}].map(({key,label,ph})=>(
-                <div key={key}>
-                  <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>{label}</div>
-                  <textarea value={editEntry[key]||""} onChange={e=>onUpdateDaily(date,key,e.target.value)} placeholder={ph}
-                    style={{width:"100%",minHeight:70,background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,color:C.text,padding:"8px 10px",fontSize:12,fontFamily:"inherit",lineHeight:1.6,resize:"vertical",outline:"none",boxSizing:"border-box"}} />
-                </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+              {[{key:"trucs_faits",ph:"Activités..."},{key:"lotd",ph:"Appris..."},{key:"gratitude",ph:"Gratitude..."},{key:"reflexions",ph:"Réflexions..."}].map(({key,ph})=>(
+                <textarea key={key} value={editEntry[key]||""} onChange={e=>onUpdateDaily(date,key,e.target.value)} placeholder={ph}
+                  style={{width:"100%",minHeight:50,background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"6px 8px",fontSize:11,fontFamily:"inherit",lineHeight:1.5,resize:"vertical",outline:"none",boxSizing:"border-box"}} />
               ))}
             </div>
-            <Btn onClick={()=>setEditing(false)} variant="accent" style={{fontSize:12,minHeight:36,padding:"6px 16px"}}>✓ Terminé</Btn>
+            <Btn onClick={()=>setEditing(false)} variant="accent" style={{fontSize:11}}>✓ Terminé</Btn>
           </div>
         )}
         {sessions.length>0&&(
-          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:10,marginTop:(habits.length>0||paperEntry||editing)?10:0}}>
-            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Sessions · {fmtMin(sessions.reduce((s,x)=>s+x.temps,0))}</div>
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              {sessions.map(s=>(
-                <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:8,background:s.type==="DEEP"?"rgba(139,92,246,0.08)":"rgba(255,255,255,0.02)",border:`1px solid ${s.type==="DEEP"?C.accent+"30":C.border}`}}>
-                  <span style={{fontSize:10,color:s.type==="DEEP"?C.accent:C.muted,fontWeight:700,width:40,flexShrink:0}}>{s.type}</span>
-                  <span style={{fontSize:12,color:C.text,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.tache}</span>
-                  <span style={{fontSize:11,color:C.muted,flexShrink:0}}>{s.temps}min</span>
-                  <span style={{fontSize:11,flexShrink:0}}>{s.efficience}</span>
-                </div>
-              ))}
-            </div>
+          <div>
+            <div style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Sessions · {fmtMin(sessionTotal)}</div>
+            {sessions.map(s=>(
+              <div key={s.id} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",borderRadius:6,marginBottom:3,background:C.surface3,border:`1px solid ${C.border}`}}>
+                <span style={{fontSize:9,color:C.accent,fontWeight:700,width:36,flexShrink:0}}>{s.type}</span>
+                <span style={{fontSize:11,color:C.text,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.tache}</span>
+                <span style={{fontSize:10,color:C.muted,flexShrink:0}}>{s.temps}min</span>
+              </div>
+            ))}
           </div>
         )}
-        {!paperEntry&&!editing&&habits.length===0&&sessions.length===0&&<div style={{fontSize:12,color:C.faint}}>—</div>}
       </div>
     </div>
   );
 }
 
 function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut }) {
+  const { todos: allTodos, restoreTodo } = useTodos();
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
   const [daily, setDaily]   = useState(() => getLS("lp_daily", {}));
   const [sessions]          = useState(() => getLS("lp_workperf", []));
-  const [groupBy, setGroupBy] = useState("mois");
   const todayMk=todayStr().slice(0,7); const todayWk=weekStart(todayStr());
   const getQK = d => { const [y,m]=d.split("-").map(Number); return `${y}-T${Math.ceil(m/3)}`; };
-  const [openMonths,   setOpenMonths]   = useState(()=>new Set([todayMk]));
-  const [openWeeks,    setOpenWeeks]    = useState(()=>new Set([todayWk]));
-  const [openQuarters, setOpenQuarters] = useState(()=>new Set([getQK(todayStr())]));
-  const [openMonthsQ,  setOpenMonthsQ]  = useState(()=>new Set([todayMk]));
-  const toggleMonth   = mk => setOpenMonths(s=>{const n=new Set(s);n.has(mk)?n.delete(mk):n.add(mk);return n;});
+  const [openWeeks,    setOpenWeeks]    = useState(()=>new Set());
+  const [openQuarters, setOpenQuarters] = useState(()=>new Set());
+  const [openMonthsQ,  setOpenMonthsQ]  = useState(()=>new Set());
+  const [openQuartersR,setOpenQuartersR]= useState(()=>new Set());
+  const [openMonthsR,  setOpenMonthsR]  = useState(()=>new Set());
+  const [openWeeksR,   setOpenWeeksR]   = useState(()=>new Set());
   const toggleWeek    = wk => setOpenWeeks(s=>{const n=new Set(s);n.has(wk)?n.delete(wk):n.add(wk);return n;});
   const toggleQuarter = qk => setOpenQuarters(s=>{const n=new Set(s);n.has(qk)?n.delete(qk):n.add(qk);return n;});
   const toggleMonthQ  = mk => setOpenMonthsQ(s=>{const n=new Set(s);n.has(mk)?n.delete(mk):n.add(mk);return n;});
+  const toggleQR = qk => setOpenQuartersR(s=>{const n=new Set(s);n.has(qk)?n.delete(qk):n.add(qk);return n;});
+  const toggleMR = mk => setOpenMonthsR(s=>{const n=new Set(s);n.has(mk)?n.delete(mk):n.add(mk);return n;});
+  const toggleWR = wk => setOpenWeeksR(s=>{const n=new Set(s);n.has(wk)?n.delete(wk):n.add(wk);return n;});
   const saveHabits = h=>{setHabits(h);setLS("lp_habits",h);};
   const saveDaily  = d=>{setDaily(d);setLS("lp_daily",d);};
   const onToggleHabit = (hid,date) => saveHabits(habits.map(h=>{if(h.id!==hid)return h;const logs=h.logs||[];return{...h,logs:logs.includes(date)?logs.filter(x=>x!==date):[...logs,date]};}));
@@ -2520,72 +2597,19 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut }) {
       </div>
     );
   };
-  const empty = <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"60px 0"}}>Aucun log pour l'instant.</div>;
-  return (
-    <div>
-      <PageHeader title="📋 Logs" onBack={onBack} />
-      <div style={{padding:"16px 16px 100px"}}>
-        {onSetViewMode&&(
-          <div style={{display:"flex",gap:6,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
-            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",alignSelf:"center",marginRight:4}}>Vue</div>
-            {[["pc","🖥 PC"],["mobile","📱 Mobile"]].map(([v,lbl])=>(
-              <button key={v} onClick={()=>onSetViewMode(v)} style={{
-                padding:"6px 18px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",
-                border:`1px solid ${viewMode===v?C.accent:C.border}`,
-                background:viewMode===v?C.accentBg:"transparent",
-                color:viewMode===v?C.accent:C.muted,
-                fontWeight:viewMode===v?600:400,
-              }}>{lbl}</button>
-            ))}
-            {onSignOut&&(
-              <button onClick={onSignOut} style={{marginLeft:"auto",padding:"6px 14px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${C.border}`,background:"transparent",color:C.muted}}>
-                Déconnexion
-              </button>
-            )}
-          </div>
-        )}
-        <div style={{display:"flex",gap:6,marginBottom:16}}>
-          {[["semaine","Semaine"],["mois","Mois"],["trimestre","Trimestre"]].map(([g,lbl])=>(
-            <button key={g} onClick={()=>setGroupBy(g)} style={{
-              padding:"5px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",
-              border:`1px solid ${groupBy===g?C.accent:C.border}`,
-              background:groupBy===g?C.accentBg:"transparent",
-              color:groupBy===g?C.accent:C.muted,
-            }}>{lbl}</button>
-          ))}
-        </div>
-        {groupBy==="semaine"&&(sortedWeeks.length===0?empty:sortedWeeks.map(wk=>{
-          const open=openWeeks.has(wk); const dates=byWeek[wk].sort((a,b)=>b.localeCompare(a));
-          return (
-            <div key={wk} style={{marginBottom:10}}>
-              <div onClick={()=>toggleWeek(wk)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:16,cursor:"pointer",userSelect:"none",marginBottom:open?8:0}}>
-                <span style={{fontSize:10,color:C.muted,width:10}}>{open?"▼":"▶"}</span>
-                <span style={{fontSize:15,fontWeight:700,color:C.text}}>Sem. {wkRange(wk)}</span>
-                <span style={{fontSize:12,color:C.muted,marginLeft:"auto"}}>{dates.length} j.</span>
-              </div>
-              {open&&dates.map(d=>dayCard(d))}
-            </div>
-          );
-        }))}
-        {groupBy==="mois"&&(sortedMonths.length===0?empty:sortedMonths.map(mk=>{
-          const [year,month]=mk.split("-").map(Number); const monthOpen=openMonths.has(mk);
-          const sortedWks=Object.keys(byMonth[mk]).sort((a,b)=>b.localeCompare(a));
-          const tot=sortedWks.reduce((s,wk)=>s+byMonth[mk][wk].length,0);
-          return (
-            <div key={mk} style={{marginBottom:10}}>
-              <div onClick={()=>toggleMonth(mk)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:16,cursor:"pointer",userSelect:"none",marginBottom:monthOpen?8:0}}>
-                <span style={{fontSize:10,color:C.muted,width:10}}>{monthOpen?"▼":"▶"}</span>
-                <span style={{fontSize:15,fontWeight:700,color:C.text}}>{MONTH_FR[month-1]} {year}</span>
-                <span style={{fontSize:12,color:C.muted,marginLeft:"auto"}}>{tot} j.</span>
-              </div>
-              {monthOpen&&sortedWks.map(wk=>{
-                const dates=[...byMonth[mk][wk]].sort((a,b)=>b.localeCompare(a));
-                return weekBlock(wk,12,dates);
-              })}
-            </div>
-          );
-        }))}
-        {groupBy==="trimestre"&&(sortedQuarters.length===0?empty:sortedQuarters.map(qk=>{
+  const empty = <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"40px 0"}}>Aucun log pour l'instant.</div>;
+
+  const doneProjects = allTodos.filter(t=>t.gtd==="projet"&&t.done);
+  const dpByQ={};
+  doneProjects.forEach(p=>{
+    const d=p.doneAt?.slice(0,10)||p.dateFin||todayStr();
+    const qk=getQK(d); const mk=d.slice(0,7); const wk=weekStart(d);
+    ((dpByQ[qk]??={})[mk]??={})[wk]??=[];
+    dpByQ[qk][mk][wk].push(p);
+  });
+  const sortedQR=Object.keys(dpByQ).sort((a,b)=>b.localeCompare(a));
+
+  const logsContent = sortedQuarters.length===0?empty:sortedQuarters.map(qk=>{
           const [year,tq]=qk.split("-"); const qOpen=openQuarters.has(qk);
           const sortedMks=Object.keys(byQuarter[qk]).sort((a,b)=>b.localeCompare(a));
           const tot=sortedMks.reduce((s,mk)=>s+Object.values(byQuarter[qk][mk]).reduce((ss,arr)=>ss+arr.length,0),0);
@@ -2616,7 +2640,91 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut }) {
               })}
             </div>
           );
-        }))}
+        });
+
+  return (
+    <div>
+      <PageHeader title="📋 Logs" onBack={onBack} />
+      <div style={{padding:"12px 16px 100px"}}>
+        {/* Controls: vue + déconnexion */}
+        {onSetViewMode&&(
+          <div style={{display:"flex",gap:6,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",alignSelf:"center",marginRight:4}}>Vue</div>
+            {[["pc","🖥 PC"],["mobile","📱 Mobile"]].map(([v,lbl])=>(
+              <button key={v} onClick={()=>onSetViewMode(v)} style={{padding:"6px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${viewMode===v?C.accent:C.border}`,background:viewMode===v?C.accentBg:"transparent",color:viewMode===v?C.accent:C.muted,fontWeight:viewMode===v?600:400}}>{lbl}</button>
+            ))}
+            {onSignOut&&<button onClick={onSignOut} style={{marginLeft:"auto",padding:"6px 14px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${C.border}`,background:"transparent",color:C.muted}}>Déconnexion</button>}
+          </div>
+        )}
+
+        {/* Deux colonnes */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,alignItems:"start"}}>
+          {/* Gauche — Logs */}
+          <div>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>📋 Logs</div>
+            {logsContent}
+          </div>
+
+          {/* Droite — Projets terminés */}
+          <div>
+            <div style={{fontSize:10,color:C.green,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>✅ Projets terminés</div>
+            {sortedQR.length===0
+              ? <div style={{fontSize:12,color:C.faint,textAlign:"center",padding:"32px 0"}}>Aucun projet terminé.</div>
+              : sortedQR.map(qk=>{
+                  const [yr,tq]=qk.split("-"); const qOpen=openQuartersR.has(qk);
+                  const sortedMks=Object.keys(dpByQ[qk]).sort((a,b)=>b.localeCompare(a));
+                  const tot=sortedMks.reduce((s,mk)=>s+Object.values(dpByQ[qk][mk]).reduce((ss,arr)=>ss+arr.length,0),0);
+                  return (
+                    <div key={qk} style={{marginBottom:8}}>
+                      <div onClick={()=>toggleQR(qk)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",userSelect:"none",marginBottom:qOpen?6:0}}>
+                        <span style={{fontSize:9,color:C.muted,width:8}}>{qOpen?"▼":"▶"}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:C.text}}>{tq} {yr}</span>
+                        <span style={{fontSize:10,color:C.faint,marginLeft:"auto"}}>{tot}</span>
+                      </div>
+                      {qOpen&&sortedMks.map(mk=>{
+                        const [my,mm]=mk.split("-").map(Number); const mOpen=openMonthsR.has(mk);
+                        const sortedWks=Object.keys(dpByQ[qk][mk]).sort((a,b)=>b.localeCompare(a));
+                        const mTot=sortedWks.reduce((s,wk)=>s+dpByQ[qk][mk][wk].length,0);
+                        return (
+                          <div key={mk} style={{marginLeft:8,marginBottom:4}}>
+                            <div onClick={()=>toggleMR(mk)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,cursor:"pointer",userSelect:"none",marginBottom:mOpen?4:0}}>
+                              <span style={{fontSize:9,color:C.muted,width:8}}>{mOpen?"▼":"▶"}</span>
+                              <span style={{fontSize:12,fontWeight:600,color:C.text}}>{MONTH_FR[mm-1]} {my}</span>
+                              <span style={{fontSize:10,color:C.faint,marginLeft:"auto"}}>{mTot}</span>
+                            </div>
+                            {mOpen&&sortedWks.map(wk=>{
+                              const ps=dpByQ[qk][mk][wk]; const wOpen=openWeeksR.has(wk);
+                              return (
+                                <div key={wk} style={{marginLeft:8,marginBottom:4}}>
+                                  <div onClick={()=>toggleWR(wk)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",userSelect:"none",marginBottom:wOpen?4:0}}>
+                                    <span style={{fontSize:9,color:C.muted,width:8}}>{wOpen?"▼":"▶"}</span>
+                                    <span style={{fontSize:11,color:C.muted}}>Sem. {wkRange(wk)}</span>
+                                    <span style={{fontSize:10,color:C.faint,marginLeft:"auto"}}>{ps.length}</span>
+                                  </div>
+                                  {wOpen&&ps.map(p=>{
+                                    const sc=SPHERES[p.sphere]?.c||C.border;
+                                    return (
+                                      <div key={p.id} style={{marginLeft:8,padding:"8px 10px",borderRadius:8,marginBottom:4,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${sc}`,display:"flex",alignItems:"center",gap:8}}>
+                                        <div style={{flex:1}}>
+                                          <div style={{fontSize:11,color:C.muted,textDecoration:"line-through",lineHeight:1.3}}>{p.name}</div>
+                                          {p.sphere&&<span style={{fontSize:9,color:sc}}>{SPHERES[p.sphere]?.label}</span>}
+                                        </div>
+                                        <span onClick={()=>restoreTodo(p.id)} title="Remettre en cours" style={{fontSize:14,cursor:"pointer",color:C.muted,flexShrink:0,padding:"2px 4px",borderRadius:4,border:`1px solid ${C.border}`}}>↩</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })
+            }
+          </div>
+        </div>
       </div>
     </div>
   );
