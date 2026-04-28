@@ -612,6 +612,10 @@ function Dashboard({ onNav, onOpenLogs }) {
   const [highlight, setHighlight]= useState(() => getLS("lp_highlight", {}));
   const [editingHL, setEditingHL]= useState(false);
   const [qAction, setQAction]    = useState(null);
+  const [appName, setAppName]    = useState(() => getLS("lp_app_name", "LE PLAN"));
+  const [mantra, setMantra]      = useState(() => getLS("lp_mantra", "Per Aspera Ad Astra"));
+  const [editingName, setEditingName] = useState(false);
+  const [editingMantra, setEditingMantra] = useState(false);
   const [animating, setAnimating]= useState(new Set());
   const [wpForm, setWpForm]      = useState({ tache: "", temps: "", type: "DEEP", domaine: "BUSINESS", efficience: "💡💡💡" });
   const [todoText, setTodoText]  = useState("");
@@ -694,7 +698,14 @@ function Dashboard({ onNav, onOpenLogs }) {
         borderBottom: `1px solid ${C.border}`, padding: "14px 16px 10px",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.14em", color: C.accent, textTransform: "uppercase" }}>LE PLAN</span>
+          {editingName
+            ? <input autoFocus value={appName} onChange={e=>setAppName(e.target.value)}
+                onBlur={()=>{ setLS("lp_app_name", appName); setEditingName(false); }}
+                onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_app_name", appName); setEditingName(false); }}}
+                style={{ fontSize:15, fontWeight:800, letterSpacing:"0.14em", color:C.accent, textTransform:"uppercase", background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:120, fontFamily:"inherit" }}
+              />
+            : <span onClick={()=>setEditingName(true)} style={{ fontSize:15, fontWeight:800, letterSpacing:"0.14em", color:C.accent, textTransform:"uppercase", cursor:"pointer" }} title="Cliquer pour modifier">{appName}</span>
+          }
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 12, color: C.muted }}>{headerDate}</span>
             <div onClick={onOpenLogs} style={{ display:"flex", flexDirection:"column", gap:4, cursor:"pointer", padding:"4px 6px" }}>
@@ -703,9 +714,14 @@ function Dashboard({ onNav, onOpenLogs }) {
           </div>
         </div>
         <div style={{ marginTop: 8 }}>
-          <span style={{ fontSize: 11, color: C.accent, border: `1px solid ${C.borderMid}`, borderRadius: 999, padding: "3px 12px" }}>
-            ✦ Per Aspera Ad Astra
-          </span>
+          {editingMantra
+            ? <input autoFocus value={mantra} onChange={e=>setMantra(e.target.value)}
+                onBlur={()=>{ setLS("lp_mantra", mantra); setEditingMantra(false); }}
+                onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_mantra", mantra); setEditingMantra(false); }}}
+                style={{ fontSize:11, color:C.accent, background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:200, fontFamily:"inherit" }}
+              />
+            : <span onClick={()=>setEditingMantra(true)} style={{ fontSize:11, color:C.accent, border:`1px solid ${C.borderMid}`, borderRadius:999, padding:"3px 12px", cursor:"pointer" }} title="Cliquer pour modifier">✦ {mantra}</span>
+          }
         </div>
       </div>
 
@@ -726,7 +742,7 @@ function Dashboard({ onNav, onOpenLogs }) {
               value={hlText}
               onChange={e => saveHL(e.target.value)}
               onBlur={() => setEditingHL(false)}
-              placeholder="Quelle est ta victoire du jour ?"
+              placeholder="La tâche qui a le plus d'impact dans ta vie"
               style={{
                 width: "100%", background: "transparent", border: "none",
                 color: C.text, fontSize: 16, fontWeight: 600, fontFamily: "inherit",
@@ -738,7 +754,7 @@ function Dashboard({ onNav, onOpenLogs }) {
             <div onClick={() => setEditingHL(true)} style={{ cursor: "text", minHeight: 40 }}>
               {hlText
                 ? <p style={{ fontSize: 16, fontWeight: 700, color: C.text, lineHeight: 1.45 }}>{hlText}</p>
-                : <p style={{ fontSize: 14, color: C.faint, fontStyle: "italic" }}>Quelle est ta victoire du jour ?</p>
+                : <p style={{ fontSize: 14, color: C.faint, fontStyle: "italic" }}>La tâche qui a le plus d'impact dans ta vie</p>
               }
             </div>
           )}
@@ -2528,48 +2544,6 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut }) {
             )}
           </div>
         )}
-        <div style={{display:"flex",gap:8,marginBottom:20}}>
-          <button onClick={()=>{
-            const data={
-              lp_habits:getLS("lp_habits",[]),
-              leplan_todos:getLS("leplan_todos",[]),
-              lp_goals:getLS("lp_goals",{}),
-              lp_daily:getLS("lp_daily",{}),
-              lp_workperf:getLS("lp_workperf",[]),
-              lp_highlight:getLS("lp_highlight",{}),
-              lp_view_mode:localStorage.getItem("lp_view_mode"),
-            };
-            const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
-            const url=URL.createObjectURL(blob);
-            const a=document.createElement("a");
-            a.href=url;a.download="leplan-data.json";a.click();
-            URL.revokeObjectURL(url);
-          }} style={{flex:1,padding:"9px 0",borderRadius:12,fontSize:13,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${C.border}`,background:C.surface2,color:C.text,fontWeight:600}}>
-            ⬇ Exporter données
-          </button>
-          <label style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:"9px 0",borderRadius:12,fontSize:13,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${C.border}`,background:C.surface2,color:C.text,fontWeight:600}}>
-            ⬆ Importer données
-            <input type="file" accept=".json" style={{display:"none"}} onChange={e=>{
-              const file=e.target.files[0]; if(!file)return;
-              const reader=new FileReader();
-              reader.onload=ev=>{
-                try{
-                  const data=JSON.parse(ev.target.result);
-                  if(data.lp_habits)setLS("lp_habits",data.lp_habits);
-                  if(data.leplan_todos)setLS("leplan_todos",data.leplan_todos);
-                  if(data.lp_goals)setLS("lp_goals",data.lp_goals);
-                  if(data.lp_daily)setLS("lp_daily",data.lp_daily);
-                  if(data.lp_workperf)setLS("lp_workperf",data.lp_workperf);
-                  if(data.lp_highlight)setLS("lp_highlight",data.lp_highlight);
-                  if(data.lp_view_mode)localStorage.setItem("lp_view_mode",data.lp_view_mode);
-                  window.location.reload();
-                }catch{alert("Fichier JSON invalide.");}
-              };
-              reader.readAsText(file);
-              e.target.value="";
-            }}/>
-          </label>
-        </div>
         <div style={{display:"flex",gap:6,marginBottom:16}}>
           {[["semaine","Semaine"],["mois","Mois"],["trimestre","Trimestre"]].map(([g,lbl])=>(
             <button key={g} onClick={()=>setGroupBy(g)} style={{
