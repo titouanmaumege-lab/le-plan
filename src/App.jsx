@@ -1,11 +1,26 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { syncToSupabase } from "./supabase";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILS
 // ─────────────────────────────────────────────────────────────────────────────
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 const getLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
-const setLS = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+let _userId = null;
+let _syncTimer = null;
+let _onSyncStatus = null;
+const setLS = (k, v) => {
+  localStorage.setItem(k, JSON.stringify(v));
+  if (_userId) {
+    _onSyncStatus?.("saving");
+    clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(() => {
+      syncToSupabase(_userId)
+        .then(() => { _onSyncStatus?.("ok"); setTimeout(() => _onSyncStatus?.(null), 2000); })
+        .catch(() => { _onSyncStatus?.("error"); });
+    }, 1500);
+  }
+};
 const todayStr = () => new Date().toISOString().split("T")[0];
 const weekDates = () => {
   const d = new Date(), day = d.getDay() === 0 ? 6 : d.getDay() - 1;
@@ -2439,7 +2454,7 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
   );
 }
 
-function LogsModule({ onBack, viewMode, onSetViewMode }) {
+function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut }) {
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
   const [daily, setDaily]   = useState(() => getLS("lp_daily", {}));
   const [sessions]          = useState(() => getLS("lp_workperf", []));
@@ -2495,7 +2510,7 @@ function LogsModule({ onBack, viewMode, onSetViewMode }) {
       <PageHeader title="📋 Logs" onBack={onBack} />
       <div style={{padding:"16px 16px 100px"}}>
         {onSetViewMode&&(
-          <div style={{display:"flex",gap:6,marginBottom:20}}>
+          <div style={{display:"flex",gap:6,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
             <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",alignSelf:"center",marginRight:4}}>Vue</div>
             {[["pc","🖥 PC"],["mobile","📱 Mobile"]].map(([v,lbl])=>(
               <button key={v} onClick={()=>onSetViewMode(v)} style={{
@@ -2506,6 +2521,11 @@ function LogsModule({ onBack, viewMode, onSetViewMode }) {
                 fontWeight:viewMode===v?600:400,
               }}>{lbl}</button>
             ))}
+            {onSignOut&&(
+              <button onClick={onSignOut} style={{marginLeft:"auto",padding:"6px 14px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${C.border}`,background:"transparent",color:C.muted}}>
+                Déconnexion
+              </button>
+            )}
           </div>
         )}
         <div style={{display:"flex",gap:8,marginBottom:20}}>
@@ -2631,12 +2651,18 @@ function LogsModule({ onBack, viewMode, onSetViewMode }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // APP ROOT
 // ─────────────────────────────────────────────────────────────────────────────
-export default function App() {
+export default function App({ session, signOut }) {
   const [module, setModule]   = useState("dashboard");
   const [logsOpen, setLogsOpen] = useState(false);
   const [viewMode, setViewMode] = useState(()=>getLS("lp_view_mode","pc"));
+  const [syncStatus, setSyncStatus] = useState(null); // null | "saving" | "ok" | "error"
   const touchRef = useRef(null);
   const mobile = viewMode === "mobile" && window.innerWidth >= 600;
+
+  useEffect(() => {
+    _userId = session?.user?.id ?? null;
+    _onSyncStatus = setSyncStatus;
+  }, [session]);
 
   const setView = v => { setViewMode(v); setLS("lp_view_mode", v); };
 
@@ -2650,6 +2676,17 @@ export default function App() {
     touchRef.current = null;
     if (module === "dashboard" && !logsOpen && Math.abs(dx) > Math.abs(dy) && dx < -70) setLogsOpen(true);
   };
+
+  const syncBadge = (
+    <div style={{ position:"fixed", top:12, right:16, zIndex:9999, padding:"5px 12px", borderRadius:999, fontSize:12, fontWeight:600,
+      background: syncStatus==="ok" ? "rgba(16,185,129,0.2)" : syncStatus==="error" ? "rgba(239,68,68,0.2)" : syncStatus==="saving" ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.05)",
+      color: syncStatus==="ok" ? C.green : syncStatus==="error" ? C.red : syncStatus==="saving" ? C.accent : C.faint,
+      border: `1px solid ${syncStatus==="ok" ? C.green : syncStatus==="error" ? C.red : syncStatus==="saving" ? C.accent : "rgba(255,255,255,0.08)"}`,
+      transition:"all 0.3s",
+    }}>
+      {syncStatus==="saving" ? "⏳ Sync…" : syncStatus==="ok" ? "✓ Sync" : syncStatus==="error" ? "✗ Erreur" : "☁"}
+    </div>
+  );
 
   const inner = (
     <div
@@ -2681,7 +2718,7 @@ export default function App() {
           }}
           style={{ position:"absolute", top:0, right:0, bottom:0, width:"92%", maxWidth:500, background:C.bg, transform:logsOpen?"translateX(0)":"translateX(100%)", transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)", overflowY:"auto" }}
         >
-          <LogsModule onBack={()=>setLogsOpen(false)} viewMode={viewMode} onSetViewMode={setView} />
+          <LogsModule onBack={()=>setLogsOpen(false)} viewMode={viewMode} onSetViewMode={setView} onSignOut={signOut} />
         </div>
       </div>
     </div>
@@ -2689,12 +2726,15 @@ export default function App() {
 
   if (mobile) {
     return (
-      <div style={{ minHeight:"100vh", background:"#06060f", display:"flex", justifyContent:"center", alignItems:"flex-start" }}>
-        <div style={{ width:390, minHeight:"100vh", overflowX:"hidden", boxShadow:"0 0 0 1px rgba(139,92,246,0.2), 0 24px 80px rgba(0,0,0,0.8)" }}>
-          {inner}
+      <>
+        {syncBadge}
+        <div style={{ minHeight:"100vh", background:"#06060f", display:"flex", justifyContent:"center", alignItems:"flex-start" }}>
+          <div style={{ width:390, minHeight:"100vh", overflowX:"hidden", boxShadow:"0 0 0 1px rgba(139,92,246,0.2), 0 24px 80px rgba(0,0,0,0.8)" }}>
+            {inner}
+          </div>
         </div>
-      </div>
+      </>
     );
   }
-  return inner;
+  return <>{syncBadge}{inner}</>;
 }
