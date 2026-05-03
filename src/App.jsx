@@ -33,6 +33,12 @@ const weekStart = dateStr => {
   const mon = new Date(d); mon.setDate(d.getDate() - off);
   return mon.toISOString().split("T")[0];
 };
+const weekEnd = dateStr => {
+  const d = new Date(weekStart(dateStr) + "T12:00:00");
+  d.setDate(d.getDate() + 6);
+  return d.toISOString().split("T")[0];
+};
+const isWeekLocked = wkStart => new Date() > new Date(weekEnd(wkStart) + "T23:59:59");
 const MONTH_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
 const monthDates = (y, m) => Array.from({ length: new Date(y, m + 1, 0).getDate() }, (_, i) => new Date(y, m, i + 1).toISOString().split("T")[0]);
 const fmtDate = s => new Date(s + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
@@ -2543,11 +2549,337 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
   );
 }
 
-function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// WEEKLY REVIEW MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+const emojiVal = (arr, val) => { const i = arr.indexOf(val); return i >= 0 ? i + 1 : null; };
+const avg = arr => arr.length ? (arr.reduce((s,v)=>s+v,0)/arr.length) : null;
+const avgBar = (val, max, color) => val == null ? null : (
+  <div style={{display:"flex",alignItems:"center",gap:6}}>
+    <div style={{flex:1,height:4,borderRadius:2,background:C.surface3,overflow:"hidden"}}>
+      <div style={{height:"100%",width:`${(val/max)*100}%`,background:color,borderRadius:2,transition:"width 0.3s"}} />
+    </div>
+    <span style={{fontSize:10,color,fontWeight:600,minWidth:24,textAlign:"right"}}>{val.toFixed(1)}</span>
+  </div>
+);
+
+function WRSection({ title, children }) {
+  return (
+    <div style={{marginBottom:24}}>
+      <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        <div style={{flex:1,height:1,background:C.border}} />
+        {title}
+        <div style={{flex:1,height:1,background:C.border}} />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
+  const wkEnd = weekEnd(wkStart);
+  const locked = isWeekLocked(wkStart);
+  const [reviews, setReviews] = useState(() => getLS("lp_weekly_reviews", []));
+  const existing = reviews.find(r => r.weekStart === wkStart);
+  const [note, setNote] = useState(existing?.note || "");
+  const [saved, setSaved] = useState(false);
+
+  const habits  = getLS("lp_habits", []);
+  const todos   = getLS("leplan_todos", []);
+  const sessions= getLS("lp_workperf", []);
+  const daily   = getLS("lp_daily", {});
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(wkStart + "T12:00:00"); d.setDate(d.getDate() + i);
+    return d.toISOString().split("T")[0];
+  });
+
+  // Stats
+  const habitsDaysAll = weekDays.filter(d => habits.length > 0 && habits.every(h => (h.logs||[]).includes(d))).length;
+  const habitsTotalDone = habits.length > 0 ? weekDays.reduce((s,d) => s + habits.filter(h=>(h.logs||[]).includes(d)).length, 0) : 0;
+  const habitsTotal = habits.length * 7;
+  const habitsPct = habitsTotal > 0 ? Math.round(habitsTotalDone / habitsTotal * 100) : 0;
+  const sessionsWeek  = sessions.filter(s => weekDays.includes(s.date));
+  const sessionsMins  = sessionsWeek.reduce((s, x) => s + (x.temps||0), 0);
+  const todosWeek     = todos.filter(t => t.gtd==="projet" && t.done && t.doneAt && weekDays.includes(t.doneAt.slice(0,10)));
+  const dailyEntries  = weekDays.map(d => ({ date: d, entry: djEntry(daily[d]) }));
+  const dailyCount    = dailyEntries.filter(({entry:e}) => e.morning||e.trucs_faits||e.reflexions).length;
+
+  // Daily averages
+  const energyVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.morning)).filter(v=>v!=null);
+  const focusVals  = dailyEntries.map(({entry:e}) => emojiVal(DJ_FOCUS,  e.focus)).filter(v=>v!=null);
+  const stressVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_STRESS, e.stress)).filter(v=>v!=null);
+  const avgEnergy  = avg(energyVals);
+  const avgFocus   = avg(focusVals);
+  const avgStress  = avg(stressVals);
+
+  const fmtD = d => new Date(d+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long"});
+  const fmtDshort = d => new Date(d+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"});
+
+  const save = () => {
+    const review = {
+      id: existing?.id || uid(),
+      weekStart: wkStart, weekEnd: wkEnd,
+      note,
+      summary: { habitsDaysAll, habitsPct, sessionsMins, sessionsCount: sessionsWeek.length, todosCompleted: todosWeek.length, dailyCount, avgEnergy, avgFocus, avgStress },
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      locked: isWeekLocked(wkStart),
+    };
+    const updated = existing ? reviews.map(r => r.weekStart===wkStart ? review : r) : [...reviews, review];
+    setReviews(updated);
+    setLS("lp_weekly_reviews", updated);
+    setSaved(true);
+    onSaved?.();
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
+      <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.82)",backdropFilter:"blur(6px)"}} />
+      <div style={{position:"relative",width:"min(1000px,98vw)",maxHeight:"94vh",display:"flex",flexDirection:"column",background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,boxShadow:"0 0 60px rgba(139,92,246,0.3), 0 24px 80px rgba(0,0,0,0.8)",animation:"slide-up 0.22s ease"}}>
+
+        {/* Sticky header */}
+        <div style={{padding:"20px 28px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
+          <span style={{fontSize:26}}>📊</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:20,fontWeight:800,color:C.text,letterSpacing:"-0.01em"}}>Weekly Review</div>
+            <div style={{fontSize:13,color:C.muted}}>{fmtD(wkStart)} → {fmtD(wkEnd)}</div>
+          </div>
+          {locked
+            ? <span style={{fontSize:12,color:C.amber,background:C.amberBg,padding:"4px 12px",borderRadius:999,border:`1px solid ${C.amber}`,fontWeight:600}}>🔒 Verrouillée</span>
+            : <span style={{fontSize:11,color:C.green,background:C.greenBg,padding:"4px 12px",borderRadius:999,border:`1px solid ${C.green}`}}>Modifiable jusqu'au dimanche</span>
+          }
+          <button onClick={onClose} style={{background:"none",border:"none",color:C.muted,fontSize:26,cursor:"pointer",padding:"0 0 0 8px",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+
+        {/* Scrollable content */}
+        <div style={{overflowY:"auto",padding:"24px 28px 28px",flex:1}}>
+
+          {/* ── STATS ── */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:28}}>
+            {[
+              {icon:"🔥",label:"Remplissage habitudes",value:`${habitsPct}%`,sub:`${habitsTotalDone}/${habitsTotal} complétées`,color:C.orange},
+              {icon:"✅",label:"Projets terminés",value:String(todosWeek.length),sub:`cette semaine`,color:C.green},
+              {icon:"⚡",label:"Temps de travail",value:fmtMin(sessionsMins),sub:`${sessionsWeek.length} sessions`,color:C.blue},
+              {icon:"📓",label:"Journaux remplis",value:`${dailyCount}/7`,sub:`entrées daily`,color:C.purple},
+            ].map(({icon,label,value,sub,color})=>(
+              <div key={label} style={{padding:"16px",background:C.surface2,borderRadius:16,border:`1px solid ${C.border}`,textAlign:"center"}}>
+                <div style={{fontSize:24,marginBottom:8}}>{icon}</div>
+                <div style={{fontSize:26,fontWeight:800,color,lineHeight:1}}>{value}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:4,lineHeight:1.3}}>{label}</div>
+                <div style={{fontSize:10,color:C.faint,marginTop:2}}>{sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* ── HABITUDES DÉTAIL ── */}
+          {habits.length > 0 && (
+            <WRSection title="Habitudes">
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr>
+                      <th style={{textAlign:"left",padding:"6px 10px",color:C.faint,fontWeight:600,fontSize:11,minWidth:140}}>Habitude</th>
+                      {weekDays.map((d,i)=>(
+                        <th key={d} style={{padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:11,textAlign:"center",minWidth:38}}>
+                          <div>{DAY_LABELS[i]}</div>
+                          <div style={{fontSize:9,color:C.faint,fontWeight:400}}>{fmtDshort(d).split(" ")[0]}</div>
+                        </th>
+                      ))}
+                      <th style={{padding:"6px 8px",color:C.faint,fontWeight:600,fontSize:11,textAlign:"center",minWidth:38}}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {habits.map(h => {
+                      const total = weekDays.filter(d=>(h.logs||[]).includes(d)).length;
+                      return (
+                        <tr key={h.id} style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>
+                            <span style={{marginRight:6}}>{h.emoji||"•"}</span>{h.name}
+                          </td>
+                          {weekDays.map(d=>{
+                            const done=(h.logs||[]).includes(d);
+                            return (
+                              <td key={d} style={{padding:"8px",textAlign:"center"}}>
+                                <span style={{fontSize:16,color:done?C.green:C.surface3}}>{done?"✓":"✗"}</span>
+                              </td>
+                            );
+                          })}
+                          <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:total===7?C.green:total>=4?C.amber:C.red}}>
+                            {total}/7
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {/* Totals row */}
+                    <tr style={{borderTop:`2px solid ${C.border}`,background:C.surface3}}>
+                      <td style={{padding:"8px 10px",color:C.muted,fontSize:11,fontWeight:600}}>TOTAL DU JOUR</td>
+                      {weekDays.map(d=>{
+                        const done=habits.filter(h=>(h.logs||[]).includes(d)).length;
+                        const full=done===habits.length&&habits.length>0;
+                        return (
+                          <td key={d} style={{padding:"8px",textAlign:"center",fontWeight:700,fontSize:12,color:full?C.green:done>0?C.amber:C.faint}}>
+                            {done}/{habits.length}
+                          </td>
+                        );
+                      })}
+                      <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:C.accent,fontSize:12}}>
+                        {weekDays.reduce((s,d)=>s+habits.filter(h=>(h.logs||[]).includes(d)).length,0)}/{habits.length*7}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </WRSection>
+          )}
+
+          {/* ── DAILY TRACKER ── */}
+          {dailyCount > 0 && (
+            <WRSection title="Daily Tracker">
+              {/* Moyennes */}
+              {(avgEnergy||avgFocus||avgStress) && (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+                  {[
+                    {label:"Énergie (matin)",val:avgEnergy,color:C.amber,max:5},
+                    {label:"Focus",val:avgFocus,color:C.blue,max:5},
+                    {label:"Stress",val:avgStress,color:C.red,max:5},
+                  ].map(({label,val,color,max})=>(
+                    <div key={label} style={{padding:"12px 14px",background:C.surface2,borderRadius:12,border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:600}}>{label}</div>
+                      {avgBar(val,max,color)}
+                      <div style={{fontSize:10,color:C.faint,marginTop:4}}>moyenne sur {val!=null?(val===avgEnergy?energyVals:val===avgFocus?focusVals:stressVals).length:0} jours</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Par jour */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
+                {weekDays.map((d,i)=>{
+                  const e=djEntry(daily[d]);
+                  const hasData=e.morning||e.trucs_faits||e.reflexions||e.lotd||e.focus||e.stress;
+                  const en=emojiVal(DJ_ENERGY,e.morning);
+                  const fo=emojiVal(DJ_FOCUS,e.focus);
+                  const st=emojiVal(DJ_STRESS,e.stress);
+                  return (
+                    <div key={d} style={{padding:"10px 8px",background:hasData?C.surface2:C.surface3,borderRadius:12,border:`1px solid ${hasData?C.border:"transparent"}`,opacity:hasData?1:0.4}}>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:6}}>{DAY_LABELS[i]}</div>
+                      <div style={{fontSize:9,color:C.faint,marginBottom:8}}>{fmtDshort(d)}</div>
+                      {hasData ? (
+                        <>
+                          {en&&<div style={{fontSize:9,marginBottom:3,color:C.amber}} title="Énergie">⚡ {en}/5</div>}
+                          {fo&&<div style={{fontSize:9,marginBottom:3,color:C.blue}} title="Focus">❖ {fo}/5</div>}
+                          {st&&<div style={{fontSize:9,marginBottom:6,color:C.red}} title="Stress">✶ {st}/5</div>}
+                          {e.trucs_faits&&<div style={{fontSize:9,color:C.muted,lineHeight:1.4,borderTop:`1px solid ${C.border}`,paddingTop:4,marginBottom:2}}><span style={{color:C.faint}}>✔ </span>{e.trucs_faits.length>60?e.trucs_faits.slice(0,60)+"…":e.trucs_faits}</div>}
+                          {e.lotd&&<div style={{fontSize:9,color:C.purple,lineHeight:1.4,marginTop:2}}><span>💡 </span>{e.lotd.length>60?e.lotd.slice(0,60)+"…":e.lotd}</div>}
+                        </>
+                      ) : (
+                        <div style={{fontSize:9,color:C.faint,textAlign:"center",paddingTop:4}}>—</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Reflexions notables */}
+              {dailyEntries.filter(({entry:e})=>e.reflexions).map(({date,entry:e})=>(
+                <div key={date} style={{marginTop:8,padding:"10px 14px",background:C.surface2,borderRadius:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.purple}`}}>
+                  <div style={{fontSize:10,color:C.purple,fontWeight:600,marginBottom:4}}>{fmtDshort(date)} — Réflexions</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{e.reflexions}</div>
+                </div>
+              ))}
+              {dailyEntries.filter(({entry:e})=>e.gratitude).map(({date,entry:e})=>(
+                <div key={date+"g"} style={{marginTop:8,padding:"10px 14px",background:C.surface2,borderRadius:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.amber}`}}>
+                  <div style={{fontSize:10,color:C.amber,fontWeight:600,marginBottom:4}}>{fmtDshort(date)} — Gratitude</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{e.gratitude}</div>
+                </div>
+              ))}
+            </WRSection>
+          )}
+
+          {/* ── SESSIONS DE TRAVAIL ── */}
+          {sessionsWeek.length > 0 && (
+            <WRSection title="Sessions de travail">
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {weekDays.filter(d=>sessionsWeek.some(s=>s.date===d)).map(d=>{
+                  const daySessions=sessionsWeek.filter(s=>s.date===d);
+                  const dayMins=daySessions.reduce((s,x)=>s+(x.temps||0),0);
+                  return (
+                    <div key={d} style={{padding:"12px 14px",background:C.surface2,borderRadius:12,border:`1px solid ${C.border}`}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                        <span style={{fontSize:11,fontWeight:700,color:C.text}}>{fmtDshort(d)}</span>
+                        <span style={{marginLeft:"auto",fontSize:11,color:C.blue,fontWeight:700}}>{fmtMin(dayMins)}</span>
+                      </div>
+                      {daySessions.map(s=>(
+                        <div key={s.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                          <span style={{fontSize:9,padding:"2px 7px",borderRadius:999,background:WP_TYPE_C[s.type]+"22",color:WP_TYPE_C[s.type],fontWeight:700,flexShrink:0}}>{s.type}</span>
+                          <span style={{fontSize:11,color:C.muted,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.tache||s.domaine||"—"}</span>
+                          <span style={{fontSize:10,color:C.faint,flexShrink:0}}>{fmtMin(s.temps)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Par type summary */}
+              <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+                {Object.entries(WP_TYPE_C).map(([type,color])=>{
+                  const mins=sessionsWeek.filter(s=>s.type===type).reduce((s,x)=>s+(x.temps||0),0);
+                  if(!mins) return null;
+                  return <span key={type} style={{fontSize:11,padding:"4px 12px",borderRadius:999,background:color+"22",color,fontWeight:600,border:`1px solid ${color}44`}}>{type} · {fmtMin(mins)}</span>;
+                })}
+              </div>
+            </WRSection>
+          )}
+
+          {/* ── TODOS COMPLÉTÉS ── */}
+          {todosWeek.length > 0 && (
+            <WRSection title="Projets complétés">
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                {todosWeek.map(t=>{
+                  const sc=SPHERES[t.sphere]?.c||C.border;
+                  return (
+                    <div key={t.id} style={{padding:"8px 12px",background:C.surface2,borderRadius:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.green}`,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:14,color:C.green,flexShrink:0}}>✓</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,color:C.muted,textDecoration:"line-through",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div>
+                        {t.sphere&&<span style={{fontSize:9,color:sc}}>{SPHERES[t.sphere]?.label}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </WRSection>
+          )}
+
+          {/* ── NOTE & BILAN ── */}
+          <WRSection title={locked?"Bilan de la semaine 🔒":"Bilan & note de la semaine"}>
+            <textarea
+              value={note}
+              onChange={e=>!locked&&setNote(e.target.value)}
+              readOnly={locked}
+              placeholder={locked?"Semaine verrouillée — lecture seule.":"Qu'est-ce qui s'est bien passé ? Qu'est-ce qui n'a pas marché ? Quoi refaire, quoi éviter la semaine prochaine ?"}
+              style={{width:"100%",minHeight:150,padding:"14px 16px",background:locked?C.surface3:C.surface2,border:`1px solid ${locked?C.border:C.borderMid}`,borderRadius:14,color:locked?C.muted:C.text,fontSize:13,fontFamily:"inherit",resize:"vertical",lineHeight:1.7,boxSizing:"border-box",cursor:locked?"default":"text",outline:"none"}}
+            />
+            {!locked && (
+              <button onClick={save} style={{width:"100%",marginTop:12,padding:"15px",borderRadius:14,background:saved?C.green:GRAD,color:"#fff",fontSize:14,fontWeight:700,fontFamily:"inherit",border:"none",cursor:"pointer",transition:TR,boxShadow:saved?"none":GLOW}}>
+                {saved?"✓ Review sauvegardée !":"💾 Sauvegarder la Weekly Review"}
+              </button>
+            )}
+          </WRSection>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyReview }) {
   const { todos: allTodos, restoreTodo } = useTodos();
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
   const [daily, setDaily]   = useState(() => getLS("lp_daily", {}));
   const [sessions]          = useState(() => getLS("lp_workperf", []));
+  const [weeklyReviews, setWeeklyReviews] = useState(() => getLS("lp_weekly_reviews", []));
+  const openReview = wkStart => onOpenWeeklyReview?.({ wkStart, onSaved: () => setWeeklyReviews(getLS("lp_weekly_reviews",[])) });
   const todayMk=todayStr().slice(0,7); const todayWk=weekStart(todayStr());
   const getQK = d => { const [y,m]=d.split("-").map(Number); return `${y}-T${Math.ceil(m/3)}`; };
   const [openWeeks,    setOpenWeeks]    = useState(()=>new Set());
@@ -2642,9 +2974,34 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut }) {
           );
         });
 
+  const fmtWkShort = d => new Date(d+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"});
+  const [openWRQ, setOpenWRQ] = useState(()=>new Set());
+  const [openWRM, setOpenWRM] = useState(()=>new Set());
+  const toggleWRQ = qk => setOpenWRQ(s=>{const n=new Set(s);n.has(qk)?n.delete(qk):n.add(qk);return n;});
+  const toggleWRM = mk => setOpenWRM(s=>{const n=new Set(s);n.has(mk)?n.delete(mk):n.add(mk);return n;});
+  const wrByQ = {};
+  weeklyReviews.forEach(r=>{
+    const qk=getQK(r.weekStart); const mk=r.weekStart.slice(0,7);
+    ((wrByQ[qk]??={})[mk]??=[]).push(r);
+  });
+  const sortedWRQ = Object.keys(wrByQ).sort((a,b)=>b.localeCompare(a));
+
   return (
     <div>
       <PageHeader title="📋 Logs" onBack={onBack} />
+
+      {/* Weekly Review button */}
+      <div style={{padding:"12px 16px 0"}}>
+        <button
+          onClick={()=>openReview(todayWk)}
+          style={{width:"100%",padding:"16px 20px",borderRadius:16,background:GRAD,color:"#fff",fontSize:15,fontWeight:700,fontFamily:"inherit",border:"none",cursor:"pointer",boxShadow:GLOW,display:"flex",alignItems:"center",justifyContent:"center",gap:10,letterSpacing:"0.02em"}}
+        >
+          <span style={{fontSize:20}}>📊</span>
+          Weekly Review
+          {isWeekLocked(todayWk)&&<span style={{fontSize:11,background:"rgba(0,0,0,0.25)",padding:"2px 8px",borderRadius:999}}>🔒</span>}
+        </button>
+      </div>
+
       <div style={{padding:"12px 16px 100px"}}>
         {/* Controls: vue + déconnexion */}
         {onSetViewMode&&(
@@ -2725,7 +3082,64 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut }) {
             }
           </div>
         </div>
+
+        {/* Weekly Reviews log */}
+        <div style={{marginTop:28}}>
+          <div style={{fontSize:10,color:C.accent,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>📊 Weekly Reviews</div>
+          {sortedWRQ.length===0
+            ? <div style={{fontSize:12,color:C.faint,textAlign:"center",padding:"24px 0"}}>Aucune weekly review enregistrée.</div>
+            : sortedWRQ.map(qk=>{
+                const [yr,tq]=qk.split("-"); const qOpen=openWRQ.has(qk);
+                const months=Object.keys(wrByQ[qk]).sort((a,b)=>b.localeCompare(a));
+                const total=months.reduce((s,mk)=>s+wrByQ[qk][mk].length,0);
+                return (
+                  <div key={qk} style={{marginBottom:8}}>
+                    <div onClick={()=>toggleWRQ(qk)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:14,cursor:"pointer",userSelect:"none",marginBottom:qOpen?8:0}}>
+                      <span style={{fontSize:10,color:C.muted,width:10}}>{qOpen?"▼":"▶"}</span>
+                      <span style={{fontSize:14,fontWeight:700,color:C.text}}>{tq} {yr}</span>
+                      <span style={{fontSize:11,color:C.faint,marginLeft:"auto"}}>{total} review{total>1?"s":""}</span>
+                    </div>
+                    {qOpen&&months.map(mk=>{
+                      const [my,mm]=mk.split("-").map(Number); const mOpen=openWRM.has(mk);
+                      const reviews=[...wrByQ[qk][mk]].sort((a,b)=>b.weekStart.localeCompare(a.weekStart));
+                      return (
+                        <div key={mk} style={{marginLeft:12,marginBottom:6}}>
+                          <div onClick={()=>toggleWRM(mk)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.surface3,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",userSelect:"none",marginBottom:mOpen?6:0}}>
+                            <span style={{fontSize:10,color:C.muted,width:10}}>{mOpen?"▼":"▶"}</span>
+                            <span style={{fontSize:12,fontWeight:600,color:C.text}}>{MONTH_FR[mm-1]} {my}</span>
+                            <span style={{fontSize:11,color:C.faint,marginLeft:"auto"}}>{reviews.length} review{reviews.length>1?"s":""}</span>
+                          </div>
+                          {mOpen&&reviews.map(r=>{
+                            const lk=r.locked||isWeekLocked(r.weekStart);
+                            return (
+                              <div key={r.id} onClick={()=>openReview(r.weekStart)} style={{marginLeft:12,marginBottom:6,padding:"12px 14px",background:C.surface2,border:`1px solid ${lk?C.border:C.borderMid}`,borderRadius:12,cursor:"pointer",transition:TR}}>
+                                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                                  <span style={{fontSize:12,fontWeight:700,color:C.text}}>Sem. {fmtWkShort(r.weekStart)} → {fmtWkShort(r.weekEnd)}</span>
+                                  {lk
+                                    ? <span style={{marginLeft:"auto",fontSize:10,color:C.amber}}>🔒</span>
+                                    : <span style={{marginLeft:"auto",fontSize:10,color:C.accent,background:C.accentBg,padding:"2px 7px",borderRadius:999}}>Modifiable</span>
+                                  }
+                                </div>
+                                <div style={{display:"flex",gap:10,fontSize:11,color:C.faint}}>
+                                  <span>🔥 {r.summary?.habitsPct!=null?`${r.summary.habitsPct}%`:`${r.summary?.habitsDaysAll??0}/7j`}</span>
+                                  <span>✅ {r.summary?.todosCompleted??0} proj.</span>
+                                  <span>⚡ {fmtMin(r.summary?.sessionsMins??0)}</span>
+                                  <span>📓 {r.summary?.dailyCount??0}/7j</span>
+                                </div>
+                                {r.note&&<div style={{marginTop:6,fontSize:11,color:C.muted,lineHeight:1.5,borderTop:`1px solid ${C.border}`,paddingTop:6,whiteSpace:"pre-wrap"}}>{r.note.length>100?r.note.slice(0,100)+"…":r.note}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })
+          }
+        </div>
       </div>
+
     </div>
   );
 }
@@ -2738,6 +3152,7 @@ export default function App({ session, signOut }) {
   const [logsOpen, setLogsOpen] = useState(false);
   const [viewMode, setViewMode] = useState(()=>getLS("lp_view_mode","pc"));
   const [syncStatus, setSyncStatus] = useState(null);
+  const [wrModal, setWrModal] = useState(null);
   const touchRef = useRef(null);
   const mobile = viewMode === "mobile" && window.innerWidth >= 600;
 
@@ -2790,9 +3205,17 @@ export default function App({ session, signOut }) {
           }}
           style={{ position:"absolute", top:0, right:0, bottom:0, width:"92%", maxWidth:500, background:C.bg, transform:logsOpen?"translateX(0)":"translateX(100%)", transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)", overflowY:"auto" }}
         >
-          <LogsModule onBack={()=>setLogsOpen(false)} viewMode={viewMode} onSetViewMode={setView} onSignOut={signOut} />
+          <LogsModule onBack={()=>setLogsOpen(false)} viewMode={viewMode} onSetViewMode={setView} onSignOut={signOut} onOpenWeeklyReview={setWrModal} />
         </div>
       </div>
+      {/* Weekly Review modal — rendered at root so it covers everything */}
+      {wrModal && (
+        <WeeklyReviewModal
+          wkStart={wrModal.wkStart}
+          onClose={()=>setWrModal(null)}
+          onSaved={wrModal.onSaved}
+        />
+      )}
     </div>
   );
 
