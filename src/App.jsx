@@ -3335,7 +3335,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
           {/* ── STATS ── */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:28}}>
             {[
-              {icon:"🔥",label:"Remplissage habitudes",value:`${habitsPct}%`,sub:`${habitsTotalDone}/${habitsTotal} complétées`,color:C.orange},
+              {icon:"🔥",label:"Remplissage habitudes",value:`${habitsPct}%`,sub:`des habitudes cochées`,color:C.orange},
               {icon:"✅",label:"Projets terminés",value:String(todosWeek.length),sub:`cette semaine`,color:C.green},
               {icon:"⚡",label:"Temps de travail",value:fmtHM(sessionsMins),sub:`${sessionsWeek.length} sessions`,color:C.blue},
               {icon:"📓",label:"Journaux remplis",value:`${dailyCount}/7`,sub:`entrées daily`,color:C.purple},
@@ -3543,6 +3543,38 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
             </WRSection>
           )}
 
+          {/* ── RÉTROSPECTIVE ── */}
+          <WRSection title="RÉTROSPECTIVE">
+            {[
+              {key:'win',label:'WIN',icon:'🏆',color:'#10b981',setter:setWrWin,val:wrWin,ph:'Victoires de la semaine...'},
+              {key:'loss',label:'LOSS',icon:'💔',color:'#ef4444',setter:setWrLoss,val:wrLoss,ph:'Ce qui n\'a pas marché...'},
+              {key:'ameliorer',label:'À AMÉLIORER',icon:'🔧',color:'#3b82f6',setter:setWrAmeliorer,val:wrAmeliorer,ph:'Ce que tu veux améliorer...'},
+            ].map(({label,icon,color,setter,val,ph})=>(
+              <div key={label} style={{borderLeft:`4px solid ${color}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
+                <label style={{color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:1,display:'block',marginBottom:8}}>{icon} {label}</label>
+                <textarea value={val} onChange={e=>!locked&&setter(e.target.value)} readOnly={locked} placeholder={locked?"Verrouillé.":ph}
+                  rows={3} style={{width:'100%',background:'transparent',border:'none',color:locked?C.muted:C.text,resize:'vertical',fontFamily:'inherit',fontSize:13,lineHeight:1.6,outline:'none',boxSizing:'border-box',cursor:locked?'default':'text'}} />
+              </div>
+            ))}
+            {wrCustomItems.map(item=>(
+              <div key={item.id} style={{borderLeft:`4px solid ${C.borderMid}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+                  <input value={item.title} onChange={e=>!locked&&setWrCustomItems(s=>s.map(x=>x.id===item.id?{...x,title:e.target.value}:x))}
+                    readOnly={locked} style={{flex:1,background:'transparent',border:'none',color:C.accent,fontWeight:700,fontSize:11,textTransform:'uppercase',fontFamily:'inherit',outline:'none'}} />
+                  {!locked && <span onClick={()=>setWrCustomItems(s=>s.filter(x=>x.id!==item.id))} style={{fontSize:14,color:C.faint,cursor:'pointer'}}>🗑️</span>}
+                </div>
+                <textarea value={item.content||''} onChange={e=>!locked&&setWrCustomItems(s=>s.map(x=>x.id===item.id?{...x,content:e.target.value}:x))}
+                  readOnly={locked} rows={3} style={{width:'100%',background:'transparent',border:'none',color:locked?C.muted:C.text,resize:'vertical',fontFamily:'inherit',fontSize:13,lineHeight:1.6,outline:'none',boxSizing:'border-box'}} />
+              </div>
+            ))}
+            {!locked && (
+              <button onClick={()=>setWrCustomItems(s=>[...s,{id:uid(),title:'Item personnalisé',content:''}])}
+                style={{width:'100%',padding:'10px',borderRadius:12,border:`1px dashed ${C.borderMid}`,background:'transparent',color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                + Ajouter un item
+              </button>
+            )}
+          </WRSection>
+
           {/* ── OBJECTIFS DE SEMAINE ── */}
           <WRSection title="OBJECTIFS DE SEMAINE">
             {currentObjs.length > 0 && (
@@ -3618,53 +3650,11 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
             </div>
           </WRSection>
 
-          {/* ── RÉTROSPECTIVE ── */}
-          <WRSection title="RÉTROSPECTIVE">
-            {[
-              {key:'win',label:'WIN',icon:'🏆',color:'#10b981',setter:setWrWin,val:wrWin,ph:'Victoires de la semaine...'},
-              {key:'loss',label:'LOSS',icon:'💔',color:'#ef4444',setter:setWrLoss,val:wrLoss,ph:'Ce qui n\'a pas marché...'},
-              {key:'ameliorer',label:'À AMÉLIORER',icon:'🔧',color:'#3b82f6',setter:setWrAmeliorer,val:wrAmeliorer,ph:'Ce que tu veux améliorer...'},
-            ].map(({label,icon,color,setter,val,ph})=>(
-              <div key={label} style={{borderLeft:`4px solid ${color}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
-                <label style={{color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:1,display:'block',marginBottom:8}}>{icon} {label}</label>
-                <textarea value={val} onChange={e=>!locked&&setter(e.target.value)} readOnly={locked} placeholder={locked?"Verrouillé.":ph}
-                  rows={3} style={{width:'100%',background:'transparent',border:'none',color:locked?C.muted:C.text,resize:'vertical',fontFamily:'inherit',fontSize:13,lineHeight:1.6,outline:'none',boxSizing:'border-box',cursor:locked?'default':'text'}} />
-              </div>
-            ))}
-            {wrCustomItems.map(item=>(
-              <div key={item.id} style={{borderLeft:`4px solid ${C.borderMid}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
-                <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-                  <input value={item.title} onChange={e=>!locked&&setWrCustomItems(s=>s.map(x=>x.id===item.id?{...x,title:e.target.value}:x))}
-                    readOnly={locked} style={{flex:1,background:'transparent',border:'none',color:C.accent,fontWeight:700,fontSize:11,textTransform:'uppercase',fontFamily:'inherit',outline:'none'}} />
-                  {!locked && <span onClick={()=>setWrCustomItems(s=>s.filter(x=>x.id!==item.id))} style={{fontSize:14,color:C.faint,cursor:'pointer'}}>🗑️</span>}
-                </div>
-                <textarea value={item.content||''} onChange={e=>!locked&&setWrCustomItems(s=>s.map(x=>x.id===item.id?{...x,content:e.target.value}:x))}
-                  readOnly={locked} rows={3} style={{width:'100%',background:'transparent',border:'none',color:locked?C.muted:C.text,resize:'vertical',fontFamily:'inherit',fontSize:13,lineHeight:1.6,outline:'none',boxSizing:'border-box'}} />
-              </div>
-            ))}
-            {!locked && (
-              <button onClick={()=>setWrCustomItems(s=>[...s,{id:uid(),title:'Item personnalisé',content:''}])}
-                style={{width:'100%',padding:'10px',borderRadius:12,border:`1px dashed ${C.borderMid}`,background:'transparent',color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer'}}>
-                + Ajouter un item
-              </button>
-            )}
-          </WRSection>
-
-          {/* ── NOTE & BILAN ── */}
-          <WRSection title={locked?"Bilan de la semaine 🔒":"Bilan & note de la semaine"}>
-            <textarea
-              value={note}
-              onChange={e=>!locked&&setNote(e.target.value)}
-              readOnly={locked}
-              placeholder={locked?"Semaine verrouillée — lecture seule.":"Notes libres sur la semaine..."}
-              style={{width:"100%",minHeight:100,padding:"14px 16px",background:locked?C.surface3:C.surface2,border:`1px solid ${locked?C.border:C.borderMid}`,borderRadius:14,color:locked?C.muted:C.text,fontSize:13,fontFamily:"inherit",resize:"vertical",lineHeight:1.7,boxSizing:"border-box",cursor:locked?"default":"text",outline:"none"}}
-            />
-            {!locked && (
-              <button onClick={save} style={{width:"100%",marginTop:12,padding:"15px",borderRadius:14,background:saved?C.green:GRAD,color:"#fff",fontSize:14,fontWeight:700,fontFamily:"inherit",border:"none",cursor:"pointer",transition:TR,boxShadow:saved?"none":GLOW}}>
-                {saved?"✓ Review sauvegardée !":"💾 Sauvegarder la Weekly Review"}
-              </button>
-            )}
-          </WRSection>
+          {!locked && (
+            <button onClick={save} style={{width:"100%",padding:"15px",borderRadius:14,background:saved?C.green:GRAD,color:"#fff",fontSize:14,fontWeight:700,fontFamily:"inherit",border:"none",cursor:"pointer",transition:TR,boxShadow:saved?"none":GLOW}}>
+              {saved?"✓ Review sauvegardée !":"💾 Sauvegarder la Weekly Review"}
+            </button>
+          )}
 
         </div>
       </div>
