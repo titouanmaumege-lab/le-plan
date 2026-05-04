@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { syncToSupabase } from "./supabase";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,18 +48,77 @@ const pct = (start, cur, target) => {
   return Math.round(clamp((cur - start) / (target - start) * 100, 0, 100));
 };
 const fmtMin = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60).padStart(2, "0") : ""}` : m > 0 ? `${m}min` : "—";
+const fmtHM = m => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+const formatElapsed = ms => {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+};
+function useElapsedTimer(startTime) {
+  const [elapsed, setElapsed] = useState(startTime ? Date.now() - startTime : 0);
+  useEffect(() => {
+    if (!startTime) { setElapsed(0); return; }
+    setElapsed(Date.now() - startTime);
+    const id = setInterval(() => setElapsed(Date.now() - startTime), 1000);
+    return () => clearInterval(id);
+  }, [startTime]);
+  return elapsed;
+}
+const LS_SESSION_KEY = 'LE_PLAN_ACTIVE_SESSION';
+const WP_CATEGORIES = ["BUSINESS","MASTER","PRÉPA","STAGE","MÉMOIRE","FORMATIONS PP","PROJET PERSO","PERSO","CLIENT","OPTIMISATION","AUTRE"];
+function getISOWeekId(date = new Date()) {
+  const d = new Date(date); d.setHours(0,0,0,0);
+  d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const weekNum = 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+  return `${d.getFullYear()}-W${String(weekNum).padStart(2,'0')}`;
+}
+function getNextWeekId(weekId) {
+  const [y,w]=weekId.split('-W').map(Number);
+  const jan4=new Date(y,0,4);
+  const startOfW1=new Date(jan4);
+  startOfW1.setDate(jan4.getDate()-(jan4.getDay()+6)%7);
+  const ms=startOfW1.getTime()+(w-1)*7*86400000+7*86400000;
+  return getISOWeekId(new Date(ms));
+}
+const habitValidated = (h, date) => {
+  if (h.dailyStatus) return h.dailyStatus[date] === 'validated';
+  return (h.logs || []).includes(date);
+};
 const calcStreak = habits => {
   if (!habits.length) return 0;
   const t = todayStr(); let streak = 0;
   const d = new Date();
-  if (!habits.every(h => (h.logs || []).includes(t))) d.setDate(d.getDate() - 1);
+  if (!habits.every(h => habitValidated(h, t))) d.setDate(d.getDate() - 1);
   for (let i = 0; i < 365; i++) {
     const ds = d.toISOString().split("T")[0];
-    if (!habits.every(h => (h.logs || []).includes(ds))) break;
+    if (!habits.every(h => habitValidated(h, ds))) break;
     streak++; d.setDate(d.getDate() - 1);
   }
   return streak;
 };
+function cycleHabitStatus(current) {
+  if (current === null || current === undefined) return 'validated';
+  if (current === 'validated') return 'invalidated';
+  return null;
+}
+function HabitToggle({ status, onToggle }) {
+  const cfg = status === 'validated'
+    ? { bg: '#10b981', border: '#10b981', icon: '✓', glow: '0 0 16px rgba(16,185,129,0.5)', cls: 'habit-pulse' }
+    : status === 'invalidated'
+    ? { bg: '#ef4444', border: '#ef4444', icon: '✕', glow: '0 0 16px rgba(239,68,68,0.5)', cls: 'habit-shake' }
+    : { bg: 'transparent', border: 'rgba(139,92,246,0.4)', icon: null, glow: 'none', cls: '' };
+  return (
+    <button onClick={e=>{e.stopPropagation();onToggle();}} className={cfg.cls}
+      style={{ width:36,height:36,borderRadius:'50%',background:cfg.bg,border:`2px solid ${cfg.border}`,boxShadow:cfg.glow,
+        color:'#fff',fontWeight:700,fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',
+        transition:'all 0.25s cubic-bezier(0.4,0,0.2,1)',cursor:'pointer',flexShrink:0 }}>
+      {cfg.icon}
+    </button>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DESIGN
@@ -167,8 +226,9 @@ const DJ_ENERGY  = ["⚡","⚡⚡","⚡⚡⚡","⚡⚡⚡⚡","⚡⚡⚡⚡⚡"]
 const DJ_FOCUS   = ["❖","❖❖","❖❖❖","❖❖❖❖","❖❖❖❖❖"];
 const DJ_STRESS  = ["✶","✶✶","✶✶✶","✶✶✶✶","✶✶✶✶✶"];
 const DJ_TYPES   = ["Journée classique","Journée libre","Weekend","Voyage","Jour off","Jour spécial"];
-const DJ_EMPTY   = () => ({ morning:"",noon:"",evening:"",focus:"",stress:"",type:"Journée classique",remark:"",trucs_faits:"",lotd:"",gratitude:"",reflexions:"" });
+const DJ_EMPTY   = () => ({ morning:"",noon:"",evening:"",focus:"",stress:"",type:"Journée classique",remark:"",win:"",loss:"",ameliorer:"",customItems:[] });
 const djEntry    = raw => !raw ? DJ_EMPTY() : typeof raw === "string" ? { ...DJ_EMPTY(), reflexions: raw } : { ...DJ_EMPTY(), ...raw };
+const ITEM_COLORS = ["#10b981","#ef4444","#3b82f6","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
 
 const QUICK_ADDS = [
   { label: "💼 Business", prefix: "Business — " },
@@ -339,31 +399,34 @@ function BottomNav({ current, onNav, mobile }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
-function HabitChip({ habit, done, onToggle, animating }) {
+function HabitChip({ habit, status, onToggle, animating }) {
+  const done = status === 'validated';
+  const inv  = status === 'invalidated';
   return (
     <div onClick={onToggle} style={{
       display: "flex", alignItems: "center", gap: 14,
       padding: "14px 16px", borderRadius: 16, marginBottom: 8,
-      background: done ? "rgba(16,185,129,0.07)" : C.surface2,
-      border: `1px solid ${done ? "rgba(16,185,129,0.25)" : C.border}`,
+      background: done ? "rgba(16,185,129,0.07)" : inv ? "rgba(239,68,68,0.05)" : C.surface2,
+      border: `1px solid ${done ? "rgba(16,185,129,0.25)" : inv ? "rgba(239,68,68,0.2)" : C.border}`,
       cursor: "pointer", transition: TR, minHeight: 56,
     }}>
       <span style={{ fontSize: 22, flexShrink: 0 }}>{habit.emoji}</span>
       <span style={{
         flex: 1, fontSize: 15, fontWeight: 500,
-        color: done ? C.muted : C.text,
+        color: done ? C.muted : inv ? "#ef4444" : C.text,
         textDecoration: done ? "line-through" : "none",
         transition: TR,
       }}>{habit.name}</span>
       <div className={animating ? "habit-pop" : ""} style={{
         width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-        background: done ? "linear-gradient(135deg,#10b981,#059669)" : "transparent",
-        border: `2px solid ${done ? "#10b981" : C.borderMid}`,
+        background: done ? "linear-gradient(135deg,#10b981,#059669)" : inv ? "#ef4444" : "transparent",
+        border: `2px solid ${done ? "#10b981" : inv ? "#ef4444" : C.borderMid}`,
         display: "flex", alignItems: "center", justifyContent: "center",
-        boxShadow: done ? "0 0 12px rgba(16,185,129,0.4)" : "none",
+        boxShadow: done ? "0 0 12px rgba(16,185,129,0.4)" : inv ? "0 0 12px rgba(239,68,68,0.4)" : "none",
         transition: TR,
       }}>
         {done && <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+        {inv  && <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1 }}>✕</span>}
       </div>
     </div>
   );
@@ -402,6 +465,16 @@ function MonthCalendar() {
     const startD = s.getFullYear()===year&&s.getMonth()===month ? s.getDate() : 1;
     const endD   = e.getFullYear()===year&&e.getMonth()===month ? e.getDate() : totalDays;
     return {...p, startD, endD};
+  });
+
+  const monthFirst = `${year}-${pad(month+1)}-01`;
+  const monthLast  = `${year}-${pad(month+1)}-${pad(new Date(year,month+1,0).getDate())}`;
+  const recurByDate = {};
+  todos.filter(t=>t.recurrence?.enabled&&!t.done).forEach(t => {
+    getRecurOccurrences(t, monthFirst, monthLast).forEach(ds => {
+      if (!recurByDate[ds]) recurByDate[ds] = [];
+      recurByDate[ds].push(t);
+    });
   });
 
   const cells = [];
@@ -447,9 +520,10 @@ function MonthCalendar() {
           const ds = dateStr(d);
           const isToday = ds===today;
           const memos    = showMemos   ? getMemosForDate(ds) : [];
-          const waiting  = showWaiting ? todos.filter(t=>t.gtd==="waiting"&&t.dateAssignee===ds&&!t.done) : [];
+          const waiting  = showWaiting ? todos.filter(t=>t.gtd==="waiting"&&t.dateAssignee===ds&&!t.done&&!t.recurrence?.enabled) : [];
           const myProjets= showProjets ? projBars.filter(p=>p.startD<=d&&p.endD>=d) : [];
-          const hasItems = memos.length||waiting.length||myProjets.length;
+          const recurHere = recurByDate[ds] || [];
+          const hasItems = memos.length||waiting.length||myProjets.length||recurHere.length;
 
           return (
             <div key={ds} style={{minHeight:36,borderRadius:8,padding:"3px 2px",background:isToday?"rgba(139,92,246,0.15)":hasItems?"rgba(255,255,255,0.03)":"transparent",border:isToday?`1px solid ${C.accent}55`:"1px solid transparent",position:"relative",textAlign:"center"}}>
@@ -463,6 +537,9 @@ function MonthCalendar() {
               ))}
               {waiting.map(w=>(
                 <div key={w.id} style={{fontSize:8,background:"#f59e0b33",color:"#f59e0b",borderRadius:3,padding:"1px 3px",marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>⏳</div>
+              ))}
+              {recurHere.map(r=>(
+                <div key={r.id+ds} style={{fontSize:8,background:"rgba(139,92,246,0.2)",color:C.accent,borderRadius:3,padding:"1px 3px",marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🔄</div>
               ))}
             </div>
           );
@@ -505,9 +582,16 @@ function WeeklyCalendar() {
         if (d >= tS && d <= tE) { if (sc === -1) sc = col; ec = col; }
       });
       if (sc !== -1) spanning.push({ todo: t, sc, ec });
+    } else if (t.recurrence?.enabled) {
+      // handled below via getRecurOccurrences
     } else if (t.dateAssignee && pointEvents[t.dateAssignee] !== undefined) {
       pointEvents[t.dateAssignee].push(t);
     }
+  });
+  todos.filter(t=>t.recurrence?.enabled&&!t.done).forEach(t => {
+    getRecurOccurrences(t, days7[0], days7[6]).forEach(ds => {
+      if (pointEvents[ds] !== undefined) pointEvents[ds].push(t);
+    });
   });
 
   const wkLabel = offset === 0 ? "Cette semaine"
@@ -607,7 +691,7 @@ function WeeklyCalendar() {
   );
 }
 
-function Dashboard({ onNav, onOpenLogs }) {
+function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
   const t = todayStr();
   const [habits, setHabits]     = useState(() => getLS("lp_habits", []));
   const [sessions, setSessions]  = useState(() => getLS("lp_workperf", []));
@@ -625,6 +709,7 @@ function Dashboard({ onNav, onOpenLogs }) {
   const [todoText, setTodoText]  = useState("");
   const [objText, setObjText]    = useState("");
 
+
   const hlText = highlight[t] || "";
   const saveHL = text => { const u = { ...highlight, [t]: text }; setHighlight(u); setLS("lp_highlight", u); };
 
@@ -633,8 +718,14 @@ function Dashboard({ onNav, onOpenLogs }) {
     setTimeout(() => setAnimating(s => { const n = new Set(s); n.delete(id); return n; }), 300);
     const updated = habits.map(h => {
       if (h.id !== id) return h;
-      const logs = h.logs || [];
-      return { ...h, logs: logs.includes(t) ? logs.filter(x => x !== t) : [...logs, t] };
+      const ds = h.dailyStatus || {};
+      const cur = ds[t] ?? null;
+      const next = cycleHabitStatus(cur);
+      const newDs = {...ds};
+      if (next === null) delete newDs[t]; else newDs[t] = next;
+      const logs = (h.logs||[]).filter(x=>x!==t);
+      if (next === 'validated') logs.push(t);
+      return {...h, dailyStatus:newDs, logs};
     });
     setHabits(updated); setLS("lp_habits", updated);
   };
@@ -660,7 +751,7 @@ function Dashboard({ onNav, onOpenLogs }) {
     setGoals(updated); setLS("lp_goals", updated); setObjText(""); setQAction(null);
   };
 
-  const doneH = habits.filter(h => (h.logs || []).includes(t)).length;
+  const doneH = habits.filter(h => habitValidated(h, t)).length;
   const todaySessions = sessions.filter(s => s.date === t);
   const deepToday = todaySessions.reduce((a, s) => a + s.temps, 0);
   const pulseObjs = [
@@ -690,6 +781,7 @@ function Dashboard({ onNav, onOpenLogs }) {
   const handleQuick = key => {
     if (key === "journal") { onNav("daily"); return; }
     if (key === "habit") { document.getElementById("dash-habits")?.scrollIntoView({ behavior: "smooth" }); return; }
+    if (key === "session") { onRequestSession?.(); return; }
     setQAction(qAction === key ? null : key);
   };
 
@@ -784,8 +876,7 @@ function Dashboard({ onNav, onOpenLogs }) {
             ))}
           </div>
 
-          {/* Inline quick forms */}
-          {qAction === "session" && (
+          {qAction === "session_log" && (
             <div className="slide-up" style={{ marginTop: 10, background: C.surface2, border: `1px solid ${C.borderMid}`, borderRadius: 16, padding: 14 }}>
               <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                 <Input value={wpForm.tache} onChange={v => setWpForm(f => ({...f, tache:v}))} placeholder="Tâche..." style={{ flex: 1 }} />
@@ -845,8 +936,8 @@ function Dashboard({ onNav, onOpenLogs }) {
           {habits.length === 0
             ? <p style={{ fontSize: 13, color: C.faint }}>Aucune habitude. <span onClick={() => onNav("habitudes")} style={{ color: C.accent, cursor: "pointer" }}>→ Configurer</span></p>
             : habits.map(h => {
-                const done = (h.logs || []).includes(t);
-                return <HabitChip key={h.id} habit={h} done={done} onToggle={() => toggleHabit(h.id)} animating={animating.has(h.id)} />;
+                const status = (h.dailyStatus||{})[t] ?? null;
+                return <HabitChip key={h.id} habit={h} status={status} onToggle={() => toggleHabit(h.id)} animating={animating.has(h.id)} />;
               })
           }
         </div>
@@ -1219,7 +1310,23 @@ function useTodos() {
   const addTodo      = o => { const t={id:uid(),name:"",gtd:"inbox",done:false,createdAt:new Date().toISOString(),...o}; save([...todos,t]); return t; };
   const updateTodo   = (id,p) => save(todos.map(t=>t.id===id?{...t,...p}:t));
   const deleteTodo   = id => save(todos.filter(t=>t.id!==id));
-  const toggleDone   = id => save(todos.map(t=>t.id===id?{...t,done:!t.done,doneAt:!t.done?new Date().toISOString():undefined}:t));
+  const toggleDone = id => {
+    const t = todos.find(x=>x.id===id);
+    if (!t) return;
+    const becomingDone = !t.done;
+    const updated = todos.map(x=>x.id===id?{...x,done:becomingDone,doneAt:becomingDone?new Date().toISOString():undefined}:x);
+    if (becomingDone && t.recurrence?.enabled) {
+      const nextDate = calculateNextOccurrence(t.dateFin||t.dateAssignee||new Date(), t.recurrence);
+      const nextIso = nextDate.toISOString().split('T')[0];
+      const next = {
+        ...t, id:uid(), done:false, doneAt:undefined, createdAt:new Date().toISOString(),
+        ...(t.dateFin ? {dateFin:nextIso} : {}),
+        ...(t.dateAssignee ? {dateAssignee:nextIso} : {}),
+      };
+      updated.push(next);
+    }
+    save(updated);
+  };
   const restoreTodo  = id => save(todos.map(t=>t.id===id?{...t,done:false,doneAt:undefined}:t));
   const classifyInbox= (id,p) => updateTodo(id,p);
   const addSousTache = (todoId,name) => { const todo=todos.find(t=>t.id===todoId); if(!todo) return; updateTodo(todoId,{sousTaches:[...(todo.sousTaches||[]),{id:uid(),name,done:false}]}); };
@@ -1249,7 +1356,7 @@ function useTodos() {
     const s=new Date(t.dateDebut+"T12:00:00"), e=new Date(t.dateFin+"T12:00:00");
     return s<=new Date(year,month+1,0) && e>=new Date(year,month,1);
   });
-  const getMemosForDate = date => todos.filter(t=>t.gtd==="memo"&&t.dateAssignee===date&&!t.done);
+  const getMemosForDate = date => todos.filter(t=>t.gtd==="memo"&&t.dateAssignee===date&&!t.done&&!t.recurrence?.enabled);
   return {todos,addTodo,updateTodo,deleteTodo,toggleDone,restoreTodo,classifyInbox,addSousTache,toggleSousTache,getByGTD,getByMatrice,getBySphere,getDoneItems,getProjectsForCalendar,getMemosForDate};
 }
 
@@ -1366,6 +1473,7 @@ function ProjectCard({item, todos, onUpdate, onDelete, onToggleDone, onEdit}) {
               {mat&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:C.surface3,color:C.muted,border:`1px solid ${C.border}`}}>{mat.label}</span>}
               {item.sphere&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:sc+"22",color:sc}}>{SPHERES[item.sphere]?.label}</span>}
               <span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:st.c+"22",color:st.c}}>{st.label}</span>
+              {item.recurrence?.enabled&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:C.accentBg,color:C.accent}}>🔄 {describeRecurrence(item.recurrence)}</span>}
             </div>
             {item.dateDebut&&item.dateFin
               ? <div style={{fontSize:11,color:C.muted}}>Du {item.dateDebut} au {item.dateFin}</div>
@@ -1430,8 +1538,8 @@ function ClarifyModal({item, onSave, onClose}) {
     onSave(u); onClose();
   };
   return (
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
-      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,margin:"0 auto",background:C.surface,borderRadius:"24px 24px 0 0",border:`1px solid ${C.border}`,padding:20,paddingBottom:"calc(20px + env(safe-area-inset-bottom))",maxHeight:"88vh",overflowY:"auto"}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
+      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>Classifier cette tâche</div>
         <div style={{fontSize:12,color:C.muted,marginBottom:20}}>{item.name}</div>
         <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Quel type ?</div>
@@ -1480,7 +1588,7 @@ function ClarifyModal({item, onSave, onClose}) {
           </>)}
           {form.gtd==="memo"&&(
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date assignée *</div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{form.recurrence?.enabled?"Date de la 1ère récurrence *":"Date assignée *"}</div>
               <input type="date" value={form.dateAssignee} onChange={e=>set({dateAssignee:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
             </div>
           )}
@@ -1604,7 +1712,7 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
 
         {form.gtd==="memo"&&(
           <div style={{marginBottom:14}}>
-            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date assignée</div>
+            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{form.recurrence?.enabled?"Date de la 1ère récurrence":"Date assignée"}</div>
             <input type="date" value={form.dateAssignee} onChange={e=>set({dateAssignee:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
           </div>
         )}
@@ -1635,13 +1743,138 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
   );
 }
 
+// ── Recurrence helpers ──
+const REC_DAYS_FR = ['dim','lun','mar','mer','jeu','ven','sam'];
+const REC_DAYS_FULL = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+const REC_MONTHS_SHORT = ['jan','fév','mar','avr','mai','jun','jul','aoû','sep','oct','nov','déc'];
+function describeRecurrence(r) {
+  if (!r || !r.enabled) return null;
+  const units = {day:'jour',week:'semaine',month:'mois',year:'an'};
+  let s = `Tous les ${r.interval > 1 ? r.interval + ' ' : ''}${units[r.unit]}${r.interval > 1 && r.unit !== 'mois' ? 's' : ''}`;
+  if (r.unit === 'week' && r.dayOfWeek !== undefined) s += ` le ${REC_DAYS_FULL[r.dayOfWeek]}`;
+  if ((r.unit === 'month' || r.unit === 'year') && r.dayOfMonth) s += ` le ${r.dayOfMonth}`;
+  if (r.unit === 'year' && r.monthOfYear) s += ` de ${REC_MONTHS_SHORT[r.monthOfYear-1]}`;
+  if (r.durationCount && r.durationUnit) {
+    const du = {day:'jour',week:'semaine',month:'mois',year:'an'};
+    const pl = r.durationCount > 1 && r.durationUnit !== 'month';
+    s += ` · pendant ${r.durationCount} ${du[r.durationUnit]}${pl?'s':''}`;
+  }
+  return s;
+}
+function calculateNextOccurrence(from, r) {
+  const d = new Date(from || new Date());
+  switch(r.unit) {
+    case 'day':   d.setDate(d.getDate() + r.interval); break;
+    case 'week':  d.setDate(d.getDate() + r.interval * 7); break;
+    case 'month': d.setMonth(d.getMonth() + r.interval); break;
+    case 'year':  d.setFullYear(d.getFullYear() + r.interval); break;
+  }
+  if (r.dayOfMonth && (r.unit === 'month' || r.unit === 'year')) d.setDate(r.dayOfMonth);
+  return d;
+}
+function getRecurOccurrences(todo, fromStr, toStr) {
+  if (!todo.recurrence?.enabled || !todo.dateAssignee) return [];
+  const from = new Date(fromStr + 'T00:00:00');
+  const to   = new Date(toStr  + 'T23:59:59');
+  let recEnd = to;
+  if (todo.recurrence.durationCount && todo.recurrence.durationUnit) {
+    const ed = new Date(todo.dateAssignee + 'T12:00:00');
+    const dc = todo.recurrence.durationCount, du = todo.recurrence.durationUnit;
+    if (du==='day')   ed.setDate(ed.getDate() + dc);
+    else if (du==='week')  ed.setDate(ed.getDate() + dc*7);
+    else if (du==='month') ed.setMonth(ed.getMonth() + dc);
+    else if (du==='year')  ed.setFullYear(ed.getFullYear() + dc);
+    if (ed < recEnd) recEnd = ed;
+  }
+  const dates = [];
+  let cur = new Date(todo.dateAssignee + 'T12:00:00');
+  let safety = 0;
+  while (cur <= recEnd && cur <= to && safety < 500) {
+    const ds = cur.toISOString().split('T')[0];
+    if (cur >= from) dates.push(ds);
+    const next = calculateNextOccurrence(new Date(cur), todo.recurrence);
+    if (next <= cur) break;
+    cur = next;
+    safety++;
+  }
+  return dates;
+}
+function RecurrenceToggle({ value, onChange }) {
+  const r = value || {enabled:false,unit:'week',interval:1};
+  const update = patch => onChange({...r,...patch});
+  return (
+    <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:14,padding:14,marginBottom:10}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:r.enabled?14:0}}>
+        <span style={{fontSize:13,color:C.text,fontWeight:500}}>🔄 Récurrence</span>
+        <div onClick={()=>update({enabled:!r.enabled})} style={{
+          width:40,height:22,borderRadius:999,background:r.enabled?C.accent:'rgba(139,92,246,0.2)',
+          display:'flex',alignItems:'center',padding:'0 3px',cursor:'pointer',transition:TR,
+        }}>
+          <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',transform:r.enabled?'translateX(18px)':'translateX(0)',transition:TR}} />
+        </div>
+      </div>
+      {r.enabled && (
+        <div>
+          <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:10}}>
+            <span style={{fontSize:13,color:C.muted}}>Tous les</span>
+            <input type="number" min="1" max="99" value={r.interval} onChange={e=>update({interval:Math.max(1,parseInt(e.target.value)||1)})}
+              style={{width:54,background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:'6px 8px',borderRadius:8,fontSize:13,fontFamily:'inherit',outline:'none',textAlign:'center'}} />
+            <select value={r.unit} onChange={e=>update({unit:e.target.value})}
+              style={{flex:1,background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:'6px 10px',borderRadius:8,fontSize:13,fontFamily:'inherit',outline:'none'}}>
+              <option value="day">Jours</option>
+              <option value="week">Semaines</option>
+              <option value="month">Mois</option>
+              <option value="year">Années</option>
+            </select>
+          </div>
+          {r.unit==='week' && (
+            <div style={{display:'flex',gap:5,marginBottom:10}}>
+              {REC_DAYS_FR.map((d,i)=>(
+                <button key={i} onClick={()=>update({dayOfWeek:r.dayOfWeek===i?undefined:i})}
+                  style={{flex:1,padding:'5px 2px',borderRadius:8,border:`1px solid ${r.dayOfWeek===i?C.accent:C.border}`,background:r.dayOfWeek===i?C.accentBg:'transparent',color:r.dayOfWeek===i?C.accent:C.muted,fontSize:11,cursor:'pointer',fontFamily:'inherit'}}>{d}</button>
+              ))}
+            </div>
+          )}
+          {(r.unit==='month'||r.unit==='year') && (
+            <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:10}}>
+              <span style={{fontSize:13,color:C.muted}}>Le</span>
+              <input type="number" min="1" max="31" value={r.dayOfMonth||1} onChange={e=>update({dayOfMonth:Math.min(31,Math.max(1,parseInt(e.target.value)||1))})}
+                style={{width:54,background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:'6px 8px',borderRadius:8,fontSize:13,fontFamily:'inherit',outline:'none',textAlign:'center'}} />
+              <span style={{fontSize:13,color:C.muted}}>du mois</span>
+              {r.unit==='year' && (
+                <select value={r.monthOfYear||1} onChange={e=>update({monthOfYear:parseInt(e.target.value)})}
+                  style={{flex:1,background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:'6px 10px',borderRadius:8,fontSize:13,fontFamily:'inherit',outline:'none'}}>
+                  {REC_MONTHS_SHORT.map((m,i)=><option key={i} value={i+1}>{m}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+          <div style={{display:'flex',gap:8,alignItems:'center',marginTop:10}}>
+            <span style={{fontSize:13,color:C.muted,flexShrink:0}}>Pendant</span>
+            <input type="number" min="1" max="999" value={r.durationCount||1} onChange={e=>update({durationCount:Math.max(1,parseInt(e.target.value)||1)})}
+              style={{width:54,background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:'6px 8px',borderRadius:8,fontSize:13,fontFamily:'inherit',outline:'none',textAlign:'center'}} />
+            <select value={r.durationUnit||'week'} onChange={e=>update({durationUnit:e.target.value})}
+              style={{flex:1,background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:'6px 10px',borderRadius:8,fontSize:13,fontFamily:'inherit',outline:'none'}}>
+              <option value="day">Jours</option>
+              <option value="week">Semaines</option>
+              <option value="month">Mois</option>
+              <option value="year">Ans</option>
+            </select>
+          </div>
+          <div style={{fontSize:11,color:C.accent,fontStyle:'italic',marginTop:8}}>{describeRecurrence(r)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── TodoModule ──
 function TodoModule() {
   const {todos,addTodo,updateTodo,deleteTodo,toggleDone,restoreTodo,classifyInbox,getDoneItems,getByGTD} = useTodos();
-  const [tab, setTab]               = useState("inbox");
+  const [tab, setTab]               = useState("tout");
   const [showCapture, setShowCapture]= useState(false);
   const [captureMode, setCaptureMode]= useState("fast");
-  const [capForm, setCapForm]       = useState({name:"",gtd:"inbox",sphere:null,matrice:null,dateDebut:"",dateFin:"",dateFinType:"duedate",statut:"a_planifier",dateAssignee:"",waitingFor:"",waitingNote:""});
+  const [capForm, setCapForm]       = useState({name:"",gtd:"inbox",sphere:null,matrice:null,dateDebut:"",dateFin:"",dateFinType:"duedate",statut:"a_planifier",dateAssignee:"",waitingFor:"",waitingNote:"",recurrence:null});
   const [clarifyId, setClarifyId]   = useState(null);
   const [editId, setEditId]         = useState(null);
   const [sphereFilter, setSphereFilter] = useState("all");
@@ -1653,11 +1886,12 @@ function TodoModule() {
   const [doneGTD, setDoneGTD]       = useState("all");
   const [doneSphere, setDoneSphere] = useState("all");
   const [toast, setToast]           = useState(null);
+  const [toutFilter, setToutFilter] = useState("all");
 
   const today = todayStr();
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null),2000); };
-  const resetCap = () => setCapForm({name:"",gtd:"inbox",sphere:null,matrice:null,dateDebut:"",dateFin:"",dateFinType:"duedate",statut:"a_planifier",dateAssignee:"",waitingFor:"",waitingNote:""});
+  const resetCap = () => setCapForm({name:"",gtd:"inbox",sphere:null,matrice:null,dateDebut:"",dateFin:"",dateFinType:"duedate",statut:"a_planifier",dateAssignee:"",waitingFor:"",waitingNote:"",recurrence:null});
 
   const openCapture = (gtd) => {
     const typeToGTD = { inbox:"inbox", projets:"projet", waiting:"waiting", memo:"memo", someday:"someday", fait:"inbox" };
@@ -1676,6 +1910,7 @@ function TodoModule() {
       if(capForm.gtd==="projet") Object.assign(o,{matrice:capForm.matrice,dateDebut:capForm.dateDebut||undefined,dateFin:capForm.dateFin||undefined,dateFinType:capForm.dateFinType,statut:capForm.statut,sousTaches:[]});
       else if(capForm.gtd==="memo") o.dateAssignee=capForm.dateAssignee||undefined;
       else if(capForm.gtd==="waiting") Object.assign(o,{waitingFor:capForm.waitingFor,waitingNote:capForm.waitingNote||undefined});
+      if(capForm.recurrence?.enabled) o.recurrence=capForm.recurrence;
     }
     addTodo(o); resetCap(); setShowCapture(false); showToast("Capturé.");
   };
@@ -1685,11 +1920,12 @@ function TodoModule() {
     addTodo({name:inboxText.trim(),gtd:"inbox"}); setInboxText(""); showToast("Capturé.");
   };
 
-  const inboxItems   = getByGTD("inbox").filter(t=>!t.done);
-  const projets      = todos.filter(t=>t.gtd==="projet"&&!t.done);
-  const waitingItems = getByGTD("waiting").filter(t=>!t.done);
-  const memos        = todos.filter(t=>t.gtd==="memo"&&!t.done).sort((a,b)=>(a.dateAssignee||"9999")>(b.dateAssignee||"9999")?1:-1);
-  const somedayItems = getByGTD("someday").filter(t=>!t.done);
+  const recurringItems = todos.filter(t=>t.recurrence?.enabled&&!t.done);
+  const inboxItems   = getByGTD("inbox").filter(t=>!t.done&&!t.recurrence?.enabled);
+  const projets      = todos.filter(t=>t.gtd==="projet"&&!t.done&&!t.recurrence?.enabled);
+  const waitingItems = getByGTD("waiting").filter(t=>!t.done&&!t.recurrence?.enabled);
+  const memos        = todos.filter(t=>t.gtd==="memo"&&!t.done&&!t.recurrence?.enabled).sort((a,b)=>(a.dateAssignee||"9999")>(b.dateAssignee||"9999")?1:-1);
+  const somedayItems = getByGTD("someday").filter(t=>!t.done&&!t.recurrence?.enabled);
   const memosUrgentCnt = memos.filter(t=>t.dateAssignee===today).length;
   const projEnCours    = projets.filter(t=>getProjectStatus(t)==="en_cours");
   const projAPlanifier = projets.filter(t=>getProjectStatus(t)==="a_planifier");
@@ -1716,13 +1952,20 @@ function TodoModule() {
     return fmtDate(ds);
   };
 
+  const allItems = todos.filter(t=>!t.done&&!t.recurrence?.enabled).sort((a,b)=>((b.updatedAt||b.createdAt||'')).localeCompare(a.updatedAt||a.createdAt||''));
+  const BADGE_COLORS = {inbox:C.accent,projet:'#6366f1',waiting:'#f97316',memo:'#64748b',someday:'#374151'};
+  const TOUT_FILTERS = [["all","Tous"],["projet","Projets"],["waiting","Waiting"],["memo","Mémos"],["someday","Someday"]];
+  const toutItems = toutFilter==="all" ? allItems : allItems.filter(t=>t.gtd===toutFilter);
+
   const TABS=[
-    {id:"inbox",   label:"Inbox",   cnt:inboxItems.length},
-    {id:"projets", label:"Projets", cnt:projets.length},
-    {id:"waiting", label:"Waiting", cnt:waitingItems.length},
-    {id:"memo",    label:"Mémo",    cnt:memos.length, urgent:memosUrgentCnt>0},
-    {id:"someday", label:"Someday", cnt:somedayItems.length},
-    {id:"fait",    label:"Fait",    cnt:null},
+    {id:"tout",      label:"TOUT",       cnt:allItems.length},
+    {id:"inbox",     label:"Inbox",      cnt:inboxItems.length},
+    {id:"projets",   label:"Projets",    cnt:projets.length},
+    {id:"waiting",   label:"Waiting",    cnt:waitingItems.length},
+    {id:"memo",      label:"Mémo",       cnt:memos.length, urgent:memosUrgentCnt>0},
+    {id:"someday",   label:"Someday",    cnt:somedayItems.length},
+    {id:"recurrent", label:"🔄 Récurr.", cnt:recurringItems.length},
+    {id:"fait",      label:"Fait",       cnt:null},
   ];
 
   return (
@@ -1746,6 +1989,36 @@ function TodoModule() {
       </div>
 
       <div style={{padding:"16px 16px 120px"}}>
+
+        {/* ── TOUT ── */}
+        {tab==="tout"&&(
+          <div>
+            <div style={{display:"flex",gap:6,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
+              {TOUT_FILTERS.map(([k,l])=>(
+                <button key={k} onClick={()=>setToutFilter(k)} style={{flexShrink:0,padding:"6px 14px",borderRadius:999,border:`1px solid ${toutFilter===k?C.accent:C.border}`,background:toutFilter===k?C.accentBg:"transparent",color:toutFilter===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>
+              ))}
+            </div>
+            {toutItems.length===0
+              ? <div style={{fontSize:13,color:C.faint,textAlign:"center",padding:"48px 0"}}>Aucun élément.</div>
+              : toutItems.map(item=>{
+                  const bc=BADGE_COLORS[item.gtd]||C.muted;
+                  const gtdLabel={inbox:"INBOX",projet:"PROJET",waiting:"WAITING",memo:"MÉMO",someday:"SOMEDAY"}[item.gtd]||item.gtd?.toUpperCase();
+                  return (
+                    <div key={item.id} onClick={()=>setEditId(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,cursor:"pointer"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                        <div style={{display:"flex",gap:6,marginTop:4,alignItems:"center"}}>
+                          <span style={{background:bc,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,textTransform:"uppercase"}}>{gtdLabel}</span>
+                          {item.sphere&&<span style={{fontSize:11,color:SPHERES[item.sphere]?.c||C.muted}}>{SPHERES[item.sphere]?.label}</span>}
+                          {item.dateFin&&<span style={{fontSize:11,color:C.faint}}>{item.dateFin}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+            }
+          </div>
+        )}
 
         {/* ── INBOX ── */}
         {tab==="inbox"&&(
@@ -1885,6 +2158,33 @@ function TodoModule() {
           </div>
         )}
 
+        {/* ── RÉCURRENTS ── */}
+        {tab==="recurrent"&&(
+          <div>
+            <div style={{fontSize:13,color:C.muted,marginBottom:16}}>🔄 Tâches récurrentes <span style={{color:C.faint}}>({recurringItems.length})</span></div>
+            {recurringItems.length===0
+              ? <div style={{fontSize:13,color:C.faint,textAlign:"center",padding:"48px 0"}}>Aucune tâche récurrente.</div>
+              : recurringItems.map(item=>{
+                  const bc=BADGE_COLORS[item.gtd]||C.muted;
+                  const gtdLabel={inbox:"INBOX",projet:"PROJET",waiting:"WAITING",memo:"MÉMO",someday:"SOMEDAY"}[item.gtd]||item.gtd?.toUpperCase();
+                  return (
+                    <div key={item.id} onClick={()=>setEditId(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,cursor:"pointer"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                        <div style={{display:"flex",gap:6,marginTop:4,alignItems:"center",flexWrap:"wrap"}}>
+                          <span style={{background:bc,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,textTransform:"uppercase"}}>{gtdLabel}</span>
+                          <span style={{fontSize:10,padding:"2px 8px",borderRadius:999,background:C.accentBg,color:C.accent,fontWeight:600}}>🔄 {describeRecurrence(item.recurrence)}</span>
+                          {item.dateAssignee&&<span style={{fontSize:11,color:C.faint}}>Début: {item.dateAssignee}</span>}
+                        </div>
+                      </div>
+                      <button onClick={e=>{e.stopPropagation();toggleDone(item.id);}} style={{flexShrink:0,width:28,height:28,borderRadius:"50%",background:"transparent",border:`2px solid ${C.border}`,color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>✓</button>
+                    </div>
+                  );
+                })
+            }
+          </div>
+        )}
+
         {/* ── FAIT ── */}
         {tab==="fait"&&(
           <div>
@@ -1933,8 +2233,8 @@ function TodoModule() {
 
       {/* QUICK CAPTURE MODAL */}
       {showCapture&&(
-        <div onClick={()=>setShowCapture(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
-          <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,margin:"0 auto",background:C.surface,borderRadius:"24px 24px 0 0",border:`1px solid ${C.border}`,padding:20,paddingBottom:"calc(20px + env(safe-area-inset-bottom))"}}>
+        <div onClick={()=>setShowCapture(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
+          <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
             <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:14,textAlign:"center"}}>Nouvelle tâche</div>
             <Input autoFocus value={capForm.name} onChange={v=>setCapForm(f=>({...f,name:v}))} onKeyDown={e=>e.key==="Enter"&&handleCapture()} placeholder="Nom de la tâche..."/>
             <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Type</div>
@@ -1963,7 +2263,7 @@ function TodoModule() {
             )}
             {capForm.gtd==="memo"&&(
               <div style={{marginTop:12}}>
-                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date assignée</div>
+                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{capForm.recurrence?.enabled?"Date de la 1ère récurrence":"Date assignée"}</div>
                 <input type="date" value={capForm.dateAssignee} onChange={e=>setCapForm(f=>({...f,dateAssignee:e.target.value}))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
               </div>
             )}
@@ -1971,6 +2271,11 @@ function TodoModule() {
               <div style={{marginTop:12}}>
                 <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Attendu de</div>
                 <Input value={capForm.waitingFor} onChange={v=>setCapForm(f=>({...f,waitingFor:v}))} placeholder="Nom de la personne..."/>
+              </div>
+            )}
+            {(capForm.gtd==="projet"||capForm.gtd==="memo"||capForm.gtd==="waiting")&&(
+              <div style={{marginTop:12}}>
+                <RecurrenceToggle value={capForm.recurrence} onChange={rec=>setCapForm(f=>({...f,recurrence:rec}))} />
               </div>
             )}
             <div style={{marginTop:16,display:"flex",gap:8}}>
@@ -2013,34 +2318,42 @@ function HabitudesModule() {
   const [mYear, setMYear]   = useState(new Date().getFullYear());
   const [mMonth, setMMonth] = useState(new Date().getMonth());
   const [animating, setAnimating] = useState(new Set());
+  const [editHabitId, setEditHabitId] = useState(null);
+  const [editHabitName, setEditHabitName] = useState("");
 
   const save = d => { setHabits(d); setLS("lp_habits", d); };
-  const add  = () => { if(!newName.trim()) return; save([...habits,{id:uid(),name:newName.trim(),emoji:newEmoji||"⭐",logs:[]}]); setNewName(""); setNewEmoji("⭐"); };
+  const add  = () => { if(!newName.trim()) return; save([...habits,{id:uid(),name:newName.trim(),emoji:newEmoji||"⭐",logs:[],dailyStatus:{}}]); setNewName(""); setNewEmoji("⭐"); };
   const toggle = (id, date) => {
     const d = date || todayStr();
-    if (!date) {
-      setAnimating(s => new Set([...s, id]));
-      setTimeout(() => setAnimating(s => { const n=new Set(s); n.delete(id); return n; }), 280);
-    }
     save(habits.map(h => {
       if(h.id!==id) return h;
-      const logs=h.logs||[];
-      return {...h, logs:logs.includes(d)?logs.filter(x=>x!==d):[...logs,d]};
+      const ds = h.dailyStatus || {};
+      const cur = ds[d] ?? null;
+      if (!date) {
+        setAnimating(s => new Set([...s, id]));
+        setTimeout(() => setAnimating(s => { const n=new Set(s); n.delete(id); return n; }), 350);
+      }
+      const next = cycleHabitStatus(cur);
+      const newDs = {...ds};
+      if (next === null) delete newDs[d]; else newDs[d] = next;
+      const logs = (h.logs||[]).filter(x=>x!==d);
+      if (next === 'validated') logs.push(d);
+      return {...h, dailyStatus:newDs, logs};
     }));
   };
   const del    = id => save(habits.filter(h=>h.id!==id));
   const update = (id,patch) => save(habits.map(h=>h.id===id?{...h,...patch}:h));
   const streak = h => {
-    let n=0; const logs=new Set(h.logs||[]); const d=new Date();
-    if(!logs.has(todayStr())) d.setDate(d.getDate()-1);
-    while(true) { const k=d.toISOString().split("T")[0]; if(!logs.has(k)) break; n++; d.setDate(d.getDate()-1); }
+    let n=0; const d=new Date();
+    if(!habitValidated(h,todayStr())) d.setDate(d.getDate()-1);
+    while(true) { const k=d.toISOString().split("T")[0]; if(!habitValidated(h,k)) break; n++; d.setDate(d.getDate()-1); }
     return n;
   };
   const prevMonth = () => { if(mMonth===0){setMYear(y=>y-1);setMMonth(11);}else setMMonth(m=>m-1); };
   const nextMonth = () => { if(mMonth===11){setMYear(y=>y+1);setMMonth(0);}else setMMonth(m=>m+1); };
 
   const t=todayStr(), week=weekDates();
-  const done=habits.filter(h=>(h.logs||[]).includes(t)).length;
+  const done=habits.filter(h=>habitValidated(h,t)).length;
   const VIEWS=[["today","Aujourd'hui"],["week","Semaine"],["mois","Mois"],["manage","Gérer"]];
 
   return (
@@ -2072,30 +2385,23 @@ function HabitudesModule() {
             {habits.length===0
               ? <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucune habitude. <span onClick={()=>setView("manage")} style={{color:C.accent,cursor:"pointer"}}>→ Gérer</span></div>
               : habits.map(h => {
-                  const isDone=(h.logs||[]).includes(t);
+                  const status=(h.dailyStatus||{})[t] ?? null;
+                  const isDone=status==='validated';
+                  const isInvalid=status==='invalidated';
                   const s=streak(h);
                   return (
-                    <div key={h.id} onClick={()=>toggle(h.id)} className={animating.has(h.id)?"habit-pop":""} style={{
-                      display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:16,marginBottom:8,cursor:"pointer",
-                      background:isDone?"rgba(16,185,129,0.07)":C.surface2,
-                      border:`1px solid ${isDone?"rgba(16,185,129,0.25)":C.border}`,
+                    <div key={h.id} style={{
+                      display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:16,marginBottom:8,
+                      background:isDone?"rgba(16,185,129,0.07)":isInvalid?"rgba(239,68,68,0.05)":C.surface2,
+                      border:`1px solid ${isDone?"rgba(16,185,129,0.25)":isInvalid?"rgba(239,68,68,0.2)":C.border}`,
                       transition:TR,
                     }}>
                       <span style={{fontSize:24,flexShrink:0}}>{h.emoji}</span>
                       <div style={{flex:1}}>
-                        <div style={{fontSize:15,fontWeight:500,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none"}}>{h.name}</div>
+                        <div style={{fontSize:15,fontWeight:500,color:isDone?C.muted:isInvalid?"#ef4444":C.text,textDecoration:isDone?"line-through":"none"}}>{h.name}</div>
                         {s>0&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>🔥 {s} jour{s>1?"s":""}</div>}
                       </div>
-                      <div style={{
-                        width:28,height:28,borderRadius:"50%",flexShrink:0,
-                        background:isDone?"linear-gradient(135deg,#10b981,#059669)":"transparent",
-                        border:`2px solid ${isDone?"#10b981":C.borderMid}`,
-                        display:"flex",alignItems:"center",justifyContent:"center",
-                        boxShadow:isDone?"0 0 12px rgba(16,185,129,0.4)":"none",
-                        transition:TR,
-                      }}>
-                        {isDone&&<span style={{color:"#fff",fontSize:13,fontWeight:700}}>✓</span>}
-                      </div>
+                      <HabitToggle status={status} onToggle={()=>toggle(h.id)} />
                     </div>
                   );
                 })
@@ -2117,20 +2423,21 @@ function HabitudesModule() {
               <div key={h.id} style={{ display:"grid", gridTemplateColumns:"1fr repeat(7,36px)", gap:6, alignItems:"center", marginBottom:8 }}>
                 <div style={{ fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:8 }}>{h.emoji} {h.name}</div>
                 {week.map((d,i) => {
-                  const isDone=(h.logs||[]).includes(d);
+                  const status=(h.dailyStatus||{})[d] ?? null;
+                  const isDone=status==='validated';
+                  const isInvalid=status==='invalidated';
                   const isToday=d===t;
                   const canClick=d<=t;
                   return (
                     <div key={i} onClick={() => canClick&&toggle(h.id,d)} style={{
                       width:32,height:32,borderRadius:"50%",margin:"0 auto",
-                      background:isDone?"rgba(139,92,246,0.6)":isToday?"rgba(139,92,246,0.08)":"rgba(139,92,246,0.05)",
-                      border:`2px solid ${isToday?C.accent:isDone?"rgba(139,92,246,0.5)":"transparent"}`,
+                      background:isDone?"rgba(16,185,129,0.6)":isInvalid?"rgba(239,68,68,0.6)":isToday?"rgba(139,92,246,0.08)":"rgba(139,92,246,0.05)",
+                      border:`2px solid ${isToday?C.accent:isDone?"#10b981":isInvalid?"#ef4444":"transparent"}`,
                       display:"flex",alignItems:"center",justifyContent:"center",
-                      fontSize:11,color:isDone?"#fff":C.faint,
+                      fontSize:11,color:isDone||isInvalid?"#fff":C.faint,
                       cursor:canClick?"pointer":"default",transition:TR,
-                      boxShadow:isDone?"0 0 8px rgba(139,92,246,0.3)":"none",
                     }}>
-                      {isDone&&"✓"}
+                      {isDone&&"✓"}{isInvalid&&"✕"}
                     </div>
                   );
                 })}
@@ -2155,16 +2462,16 @@ function HabitudesModule() {
                   <div style={{fontSize:13,fontWeight:500,color:C.text,marginBottom:8}}>{h.emoji} {h.name}</div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
                     {days.map(d => {
-                      const isDone=(h.logs||[]).includes(d);
+                      const status=(h.dailyStatus||{})[d] ?? null;
+                      const isDone=status==='validated';
+                      const isInvalid=status==='invalidated';
                       const isToday=d===t;
                       const canClick=d<=t;
-                      const opacity = isDone ? 0.85 : 0.07;
                       return (
                         <div key={d} onClick={() => canClick&&toggle(h.id,d)} title={d.split("-")[2]} style={{
                           width:18,height:18,borderRadius:4,flexShrink:0,
-                          background:isDone?`rgba(139,92,246,${opacity})`:`rgba(139,92,246,0.07)`,
-                          border:`1px solid ${isToday?C.accent:isDone?"rgba(139,92,246,0.4)":"transparent"}`,
-                          boxShadow:isDone?"0 0 6px rgba(139,92,246,0.25)":"none",
+                          background:isDone?"rgba(16,185,129,0.7)":isInvalid?"rgba(239,68,68,0.5)":"rgba(139,92,246,0.07)",
+                          border:`1px solid ${isToday?C.accent:isDone?"#10b981":isInvalid?"#ef4444":"transparent"}`,
                           cursor:canClick?"pointer":"default",transition:TR,
                         }} />
                       );
@@ -2189,8 +2496,18 @@ function HabitudesModule() {
             {habits.map(h => (
               <div key={h.id} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:16,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`}}>
                 <EmojiInput value={h.emoji} onSave={v=>update(h.id,{emoji:v})} />
-                <div style={{flex:1}}>
-                  <div style={{fontSize:14,fontWeight:500,color:C.text}}>{h.name}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  {editHabitId===h.id ? (
+                    <input autoFocus value={editHabitName} onChange={e=>setEditHabitName(e.target.value)}
+                      onBlur={()=>{update(h.id,{name:editHabitName.trim()||h.name});setEditHabitId(null);}}
+                      onKeyDown={e=>{if(e.key==='Enter'){update(h.id,{name:editHabitName.trim()||h.name});setEditHabitId(null);}if(e.key==='Escape')setEditHabitId(null);}}
+                      style={{width:'100%',background:'transparent',border:'none',borderBottom:`1px solid ${C.accent}`,color:C.text,fontSize:14,fontWeight:500,fontFamily:'inherit',outline:'none',padding:'2px 0'}} />
+                  ) : (
+                    <div style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}} onClick={()=>{setEditHabitId(h.id);setEditHabitName(h.name);}}>
+                      <div style={{fontSize:14,fontWeight:500,color:C.text}}>{h.name}</div>
+                      <span style={{fontSize:12,color:C.faint,flexShrink:0}}>✏️</span>
+                    </div>
+                  )}
                   <div style={{fontSize:11,color:C.muted,marginTop:3}}>{(h.logs||[]).length} entrées · {streak(h)} j. série</div>
                 </div>
                 <Btn onClick={()=>del(h.id)} variant="ghost" style={{fontSize:12,color:C.red,borderColor:C.red+"40",padding:"6px 14px"}}>Suppr.</Btn>
@@ -2204,13 +2521,147 @@ function HabitudesModule() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WORKPERF
+// WORKPERF — Live session widget + modals
 // ─────────────────────────────────────────────────────────────────────────────
-function WorkPerfModule() {
+function ActiveSessionWidget({ session, onStop }) {
+  const elapsed = useElapsedTimer(session?.startTime ?? null);
+  if (!session) return null;
+  return (
+    <div style={{
+      position:'fixed', bottom:64, left:0, right:0, zIndex:100,
+      background:'rgba(26,24,48,0.97)', borderTop:'1px solid rgba(139,92,246,0.4)',
+      borderBottom:'1px solid rgba(139,92,246,0.15)', padding:'10px 16px',
+      display:'flex', alignItems:'center', justifyContent:'space-between',
+      backdropFilter:'blur(12px)',
+    }}>
+      <div>
+        <div style={{fontSize:11,color:'#9391b5',textTransform:'uppercase',letterSpacing:'0.08em'}}>⏱ EN COURS — {session.category}</div>
+        <div style={{fontWeight:700,color:'#f1f0ff',fontSize:14}}>{session.name}</div>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:12}}>
+        <span style={{fontSize:20,fontWeight:700,color:'#8b5cf6',fontVariantNumeric:'tabular-nums',letterSpacing:'0.02em'}}>
+          {formatElapsed(elapsed)}
+        </span>
+        <button onClick={onStop} style={{background:'#ef4444',color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',fontWeight:700,fontSize:13,cursor:'pointer',minHeight:36}}>
+          ⏹ Stop
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SessionChoiceModal({ onClose, onLive, onLog }) {
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
+      <div onClick={onClose} style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)'}} />
+      <div className="slide-up" style={{
+        position:'relative',width:'min(480px,100%)',background:'#12112a',
+        borderRadius:24,border:'1px solid rgba(139,92,246,0.25)',
+        padding:'28px 24px',
+      }}>
+        <div style={{fontSize:14,fontWeight:700,color:'#f1f0ff',textAlign:'center',marginBottom:24,textTransform:'uppercase',letterSpacing:'0.08em'}}>Nouvelle Session</div>
+        <button onClick={onLive} style={{
+          width:'100%',background:'linear-gradient(135deg,#8b5cf6,#6366f1)',color:'#fff',
+          border:'none',borderRadius:16,padding:'18px 20px',fontSize:15,fontWeight:700,
+          cursor:'pointer',marginBottom:12,textAlign:'left',
+        }}>
+          <div style={{fontSize:22,marginBottom:4}}>▶</div>
+          <div>Démarrer en live</div>
+          <div style={{fontSize:12,fontWeight:400,opacity:0.8,marginTop:2}}>Chrono Clockify-style</div>
+        </button>
+        <button onClick={onLog} style={{
+          width:'100%',background:'transparent',color:'#9391b5',
+          border:'1px solid rgba(139,92,246,0.3)',borderRadius:16,padding:'18px 20px',fontSize:15,fontWeight:600,
+          cursor:'pointer',textAlign:'left',
+        }}>
+          <div style={{fontSize:22,marginBottom:4}}>📝</div>
+          <div>Logger une session</div>
+          <div style={{fontSize:12,fontWeight:400,opacity:0.7,marginTop:2}}>Session passée</div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LiveStartForm({ onClose, onLaunch }) {
+  const [name, setName] = useState('');
+  const [cat, setCat] = useState('BUSINESS');
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
+      <div onClick={onClose} style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)'}} />
+      <div className="slide-up" style={{
+        position:'relative',width:'min(480px,100%)',background:'#12112a',
+        borderRadius:24,border:'1px solid rgba(139,92,246,0.25)',
+        padding:'24px',
+      }}>
+        <div style={{fontSize:14,fontWeight:700,color:'#f1f0ff',textAlign:'center',marginBottom:20,textTransform:'uppercase',letterSpacing:'0.08em'}}>▶ Session Live</div>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nom de la session..."
+          style={{width:'100%',background:'#1a1830',border:'1px solid rgba(139,92,246,0.3)',color:'#f1f0ff',padding:'12px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:12}} />
+        <select value={cat} onChange={e=>setCat(e.target.value)}
+          style={{width:'100%',background:'#1a1830',border:'1px solid rgba(139,92,246,0.3)',color:'#f1f0ff',padding:'12px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:20}}>
+          {WP_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        <button onClick={()=>{ if(!name.trim()) return; onLaunch(name.trim(),cat); onClose(); }}
+          style={{width:'100%',background:'linear-gradient(135deg,#8b5cf6,#6366f1)',color:'#fff',border:'none',borderRadius:14,padding:'15px',fontSize:15,fontWeight:700,cursor:'pointer'}}>
+          ▶ Lancer la session
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SessionLogForm({ onClose }) {
+  const [form, setForm] = useState({tache:'',temps:'',type:'DEEP',domaine:'BUSINESS',efficience:'💡💡💡'});
+  const set = p => setForm(f=>({...f,...p}));
+  const save = () => {
+    if (!form.tache.trim() || !form.temps) return;
+    const sessions = getLS("lp_workperf", []);
+    setLS("lp_workperf", [...sessions, {id:uid(),tache:form.tache.trim(),date:todayStr(),temps:parseInt(form.temps),type:form.type,domaine:form.domaine,efficience:form.efficience}]);
+    onClose();
+  };
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
+      <div onClick={onClose} style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)'}} />
+      <div className="slide-up" style={{position:'relative',width:'min(480px,100%)',background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,padding:'24px'}}>
+        <div style={{fontSize:14,fontWeight:700,color:C.text,textAlign:'center',marginBottom:20,textTransform:'uppercase',letterSpacing:'0.08em'}}>📝 Logger une session</div>
+        <input value={form.tache} onChange={e=>set({tache:e.target.value})} placeholder="Nom de la session / tâche..."
+          style={{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'11px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:10}} />
+        <div style={{display:'flex',gap:8,marginBottom:10}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:5}}>Durée (minutes)</div>
+            <input type="number" min="1" value={form.temps} onChange={e=>set({temps:e.target.value})} placeholder="min"
+              style={{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'11px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}} />
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:5}}>Domaine</div>
+            <select value={form.domaine} onChange={e=>set({domaine:e.target.value})}
+              style={{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'11px 14px',borderRadius:12,fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}>
+              {WP_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Type</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
+          {WP_TYPES.map(tp=>(
+            <button key={tp} onClick={()=>set({type:tp})} style={{padding:'6px 13px',borderRadius:999,fontSize:12,border:`1px solid ${form.type===tp?WP_TYPE_C[tp]:C.border}`,background:form.type===tp?WP_TYPE_C[tp]+'20':'transparent',color:form.type===tp?WP_TYPE_C[tp]:C.muted,fontFamily:'inherit',cursor:'pointer'}}>{tp}</button>
+          ))}
+        </div>
+        <button onClick={save} disabled={!form.tache.trim()||!form.temps}
+          style={{width:'100%',background:GRAD,color:'#fff',border:'none',borderRadius:14,padding:'13px',fontSize:14,fontWeight:700,cursor:'pointer',opacity:form.tache.trim()&&form.temps?1:0.5}}>
+          Enregistrer
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
   const [sessions, setSessions] = useState(() => getLS("lp_workperf", []));
   const [view, setView] = useState("today");
   const [form, setForm] = useState({ tache:"",temps:"",type:"DEEP",domaine:"BUSINESS",efficience:"💡💡💡" });
   const [showForm, setShowForm] = useState(false);
+  const [showChoice, setShowChoice] = useState(false);
+  const [showLive, setShowLive] = useState(false);
   const save = d => { setSessions(d); setLS("lp_workperf", d); };
   const add  = () => {
     if(!form.tache.trim()||!form.temps) return;
@@ -2230,8 +2681,10 @@ function WorkPerfModule() {
   return (
     <div>
       <PageHeader title="⏱️️ WorkPerf"
-        action={<button onClick={()=>setShowForm(s=>!s)} style={{background:GRAD,color:"#fff",border:"none",padding:"7px 16px",borderRadius:12,fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:GLOW_SM}}>+ Session</button>}
+        action={<button onClick={()=>setShowChoice(true)} style={{background:GRAD,color:"#fff",border:"none",padding:"7px 16px",borderRadius:12,fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:GLOW_SM}}>+ Session</button>}
       />
+      {showChoice && <SessionChoiceModal onClose={()=>setShowChoice(false)} onLive={()=>{setShowChoice(false);setShowLive(true);}} onLog={()=>{setShowChoice(false);setShowForm(true);}} />}
+      {showLive && <LiveStartForm onClose={()=>setShowLive(false)} onLaunch={(name,cat)=>{onSessionStart({name,category:cat,startTime:Date.now()});}} />}
       <div style={{padding:"16px 16px 100px"}}>
         {/* KPIs */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
@@ -2371,22 +2824,173 @@ function DJRating({ label, options, value, onChange }) {
   );
 }
 
+function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCustomItem, onRemoveCustomItem, onUpdateCustomContent, onEditGlobalItem }) {
+  const [showItemModal, setShowItemModal] = useState(false);
+  const FIXED = [
+    { key:'win',      label:'WIN',        icon:'🏆', color:'#10b981' },
+    { key:'loss',     label:'LOSS',       icon:'💔', color:'#ef4444' },
+    { key:'ameliorer',label:'À AMÉLIORER',icon:'🔧', color:'#3b82f6' },
+  ];
+  const todayCustom = entry.customItems || [];
+  const todayCustomFull = todayCustom.map(tc => {
+    const g = customGlobalItems.find(g=>g.id===tc.itemId);
+    return g ? { ...g, content: tc.content } : null;
+  }).filter(Boolean);
+  return (
+    <div>
+      {FIXED.map(({key,label,icon,color})=>(
+        <div key={key} style={{borderLeft:`4px solid ${color}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
+          <label style={{color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:1,display:'block',marginBottom:8}}>{icon} {label}</label>
+          <textarea value={entry[key]||''} onChange={e=>onFieldChange(key,e.target.value)}
+            placeholder={key==='win'?'Victoires de la journée...':key==='loss'?'Ce qui n\'a pas marché...':'Ce que tu veux améliorer...'}
+            rows={3} style={{width:'100%',background:'transparent',border:'none',color:C.text,resize:'vertical',fontFamily:'inherit',fontSize:14,lineHeight:1.6,outline:'none',boxSizing:'border-box'}} />
+        </div>
+      ))}
+      {todayCustomFull.map(item=>(
+        <div key={item.id} style={{borderLeft:`4px solid ${item.color}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+            <span style={{color:item.color,fontWeight:700,fontSize:11,textTransform:'uppercase'}}>{item.name}</span>
+            <div style={{display:'flex',gap:8}}>
+              <span onClick={()=>onEditGlobalItem(item.id)} style={{fontSize:14,cursor:'pointer',color:C.muted}}>✏️</span>
+              <span onClick={()=>onRemoveCustomItem(item.id)} style={{fontSize:14,cursor:'pointer',color:C.faint}}>🗑️</span>
+            </div>
+          </div>
+          <textarea value={item.content||''} onChange={e=>onUpdateCustomContent(item.id,e.target.value)}
+            rows={3} style={{width:'100%',background:'transparent',border:'none',color:C.text,resize:'vertical',fontFamily:'inherit',fontSize:14,lineHeight:1.6,outline:'none',boxSizing:'border-box'}} />
+        </div>
+      ))}
+      <button onClick={()=>setShowItemModal(true)} style={{width:'100%',padding:'12px',borderRadius:12,border:`1px dashed ${C.borderMid}`,background:'transparent',color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+        + Ajouter un item
+      </button>
+      {showItemModal && (
+        <ItemAddModal globalItems={customGlobalItems} onClose={()=>setShowItemModal(false)}
+          onAdd={(itemId)=>{ onAddCustomItem(itemId); setShowItemModal(false); }}
+          onCreateAndAdd={(name,color)=>{ const id=onAddCustomItem(null,name,color); setShowItemModal(false); return id; }} />
+      )}
+    </div>
+  );
+}
+
+function ItemAddModal({ globalItems, onClose, onAdd, onCreateAndAdd }) {
+  const [tab, setTab] = useState('nouveau');
+  const [name, setName] = useState('');
+  const [color, setColor] = useState(ITEM_COLORS[0]);
+  const [hexInput, setHexInput] = useState(ITEM_COLORS[0]);
+  const [query, setQuery] = useState('');
+  const filtered = globalItems.filter(i=>i.name.toLowerCase().includes(query.toLowerCase()));
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
+      <div onClick={onClose} style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)'}} />
+      <div className="slide-up" style={{position:'relative',width:'min(480px,100%)',background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,padding:'24px 20px',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
+        <div style={{fontSize:14,fontWeight:700,color:C.text,textAlign:'center',marginBottom:16,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ajouter un item</div>
+        <div style={{display:'flex',gap:4,marginBottom:20}}>
+          {[['nouveau','Nouveau'],['existant','Existants']].map(([id,label])=>(
+            <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'8px',borderRadius:10,border:`1px solid ${tab===id?C.accent:C.border}`,background:tab===id?C.accentBg:'transparent',color:tab===id?C.accent:C.muted,fontSize:13,cursor:'pointer',fontFamily:'inherit'}}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div style={{overflowY:'auto',flex:1}}>
+          {tab==='nouveau' && (
+            <div>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nom de l'item..."
+                style={{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'12px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:14}} />
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>Couleur</div>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+                  {ITEM_COLORS.map(c=>(
+                    <div key={c} onClick={()=>{setColor(c);setHexInput(c);}} style={{width:32,height:32,borderRadius:'50%',background:c,border:`3px solid ${color===c?'#fff':'transparent'}`,cursor:'pointer',flexShrink:0}} />
+                  ))}
+                </div>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <div style={{width:24,height:24,borderRadius:6,background:color,flexShrink:0}} />
+                  <input value={hexInput} onChange={e=>{setHexInput(e.target.value);if(/^#[0-9a-fA-F]{6}$/.test(e.target.value))setColor(e.target.value);}}
+                    placeholder="#hex" style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'8px 12px',borderRadius:10,fontSize:13,fontFamily:'inherit',outline:'none'}} />
+                </div>
+              </div>
+              <button onClick={()=>{ if(!name.trim()) return; onCreateAndAdd(name.trim(),color); }}
+                style={{width:'100%',background:GRAD,color:'#fff',border:'none',borderRadius:12,padding:'14px',fontSize:14,fontWeight:700,cursor:'pointer'}}>
+                Créer & Ajouter
+              </button>
+            </div>
+          )}
+          {tab==='existant' && (
+            <div>
+              <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 Rechercher un item..."
+                style={{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'12px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:12}} />
+              {filtered.length===0 && <div style={{fontSize:13,color:C.muted,textAlign:'center',padding:'32px 0'}}>Aucun item. Crée-en un dans "Nouveau".</div>}
+              {filtered.map(item=>(
+                <div key={item.id} onClick={()=>onAdd(item.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderRadius:12,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,cursor:'pointer'}}>
+                  <div style={{width:16,height:16,borderRadius:'50%',background:item.color,flexShrink:0}} />
+                  <span style={{flex:1,fontSize:14,color:C.text}}>{item.name}</span>
+                  <span style={{fontSize:12,color:C.accent}}>+ Ajouter</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditGlobalItemModal({ item, onClose, onSave }) {
+  const [name, setName] = useState(item.name);
+  const [color, setColor] = useState(item.color);
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:450,display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)'}}>
+      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:'100%',maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,padding:'24px 20px'}}>
+        <div style={{fontSize:14,fontWeight:700,color:C.text,textAlign:'center',marginBottom:16}}>Modifier l'item</div>
+        <input value={name} onChange={e=>setName(e.target.value)}
+          style={{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'12px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:14}} />
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:20}}>
+          {ITEM_COLORS.map(c=>(
+            <div key={c} onClick={()=>setColor(c)} style={{width:32,height:32,borderRadius:'50%',background:c,border:`3px solid ${color===c?'#fff':'transparent'}`,cursor:'pointer'}} />
+          ))}
+        </div>
+        <button onClick={()=>onSave(name.trim(),color)} style={{width:'100%',background:GRAD,color:'#fff',border:'none',borderRadius:12,padding:'14px',fontSize:14,fontWeight:700,cursor:'pointer'}}>
+          Sauvegarder
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DailyPaperModule() {
   const [daily, setDaily]     = useState(() => getLS("lp_daily", {}));
+  const [customGlobalItems, setCustomGlobalItems] = useState(() => getLS("lp_custom_items", []));
   const [selDate, setSelDate] = useState(todayStr());
+  const [editingItemId, setEditingItemId] = useState(null);
   const save = d => { setDaily(d); setLS("lp_daily", d); };
+  const saveGlobal = g => { setCustomGlobalItems(g); setLS("lp_custom_items", g); };
   const setField = (field, val) => { const e=djEntry(daily[selDate]); save({...daily,[selDate]:{...e,[field]:val}}); };
   const entry = djEntry(daily[selDate]);
-  const sortedDates = Object.keys(daily).filter(d=>{const e=djEntry(daily[d]);return e.morning||e.trucs_faits||e.lotd||e.gratitude||e.reflexions||e.remark;}).sort((a,b)=>b.localeCompare(a));
+  const sortedDates = Object.keys(daily).filter(d=>{const e=djEntry(daily[d]);return e.morning||e.win||e.loss||e.ameliorer||e.remark||((e.customItems||[]).length>0);}).sort((a,b)=>b.localeCompare(a));
   const t=todayStr(); const isToday=selDate===t;
   const prevDay = () => { const d=new Date(selDate+"T12:00:00"); d.setDate(d.getDate()-1); setSelDate(d.toISOString().split("T")[0]); };
   const nextDay = () => { const d=new Date(selDate+"T12:00:00"); d.setDate(d.getDate()+1); const next=d.toISOString().split("T")[0]; if(next<=t) setSelDate(next); };
-  const SECTIONS = [
-    {key:"trucs_faits",label:"Les trucs faits",ph:"Liste les activités du jour..."},
-    {key:"lotd",label:"LOTD",ph:"Qu'as-tu appris aujourd'hui ?"},
-    {key:"gratitude",label:"Gratitude",ph:"Reconnaissant pour..."},
-    {key:"reflexions",label:"Réflexions",ph:"Réflexions sur la journée..."},
-  ];
+
+  const addCustomItem = (itemId, newName, newColor) => {
+    let gId = itemId;
+    if (!itemId) {
+      gId = uid();
+      saveGlobal([...customGlobalItems, {id:gId, name:newName, color:newColor, createdAt:new Date().toISOString()}]);
+    }
+    const e = djEntry(daily[selDate]);
+    if ((e.customItems||[]).some(tc=>tc.itemId===gId)) return gId;
+    save({...daily,[selDate]:{...e,customItems:[...(e.customItems||[]),{itemId:gId,content:''}]}});
+    return gId;
+  };
+  const removeCustomItem = (itemId) => {
+    const e=djEntry(daily[selDate]);
+    save({...daily,[selDate]:{...e,customItems:(e.customItems||[]).filter(tc=>tc.itemId!==itemId)}});
+  };
+  const updateCustomContent = (itemId, content) => {
+    const e=djEntry(daily[selDate]);
+    save({...daily,[selDate]:{...e,customItems:(e.customItems||[]).map(tc=>tc.itemId===itemId?{...tc,content}:tc)}});
+  };
+  const editingItem = customGlobalItems.find(g=>g.id===editingItemId);
+
   return (
     <div>
       <PageHeader title="📓 Daily Paper" />
@@ -2419,16 +3023,18 @@ function DailyPaperModule() {
           </div>
         </div>
 
-        {/* Sections */}
-        {SECTIONS.map(({key,label,ph})=>(
-          <div key={key} style={{marginBottom:12}}>
-            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{label}</div>
-            <textarea value={entry[key]||""} onChange={e=>setField(key,e.target.value)} placeholder={ph}
-              style={{width:"100%",minHeight:110,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:14,color:C.text,padding:"12px 14px",fontSize:14,fontFamily:"inherit",lineHeight:1.65,resize:"vertical",outline:"none",boxSizing:"border-box"}} />
-          </div>
-        ))}
+        {/* Win/Loss/Améliorer + custom items */}
+        <RetrospectiveCards
+          entry={entry}
+          onFieldChange={setField}
+          customGlobalItems={customGlobalItems}
+          onAddCustomItem={addCustomItem}
+          onRemoveCustomItem={removeCustomItem}
+          onUpdateCustomContent={updateCustomContent}
+          onEditGlobalItem={id=>setEditingItemId(id)}
+        />
 
-        {/* Recent sidebar condensed to a list */}
+        {/* Recent entries */}
         {sortedDates.length>0 && (
           <div style={{marginTop:20}}>
             <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Entrées récentes</div>
@@ -2451,6 +3057,10 @@ function DailyPaperModule() {
           </div>
         )}
       </div>
+      {editingItem && (
+        <EditGlobalItemModal item={editingItem} onClose={()=>setEditingItemId(null)}
+          onSave={(name,color)=>{ saveGlobal(customGlobalItems.map(g=>g.id===editingItem.id?{...g,name,color}:g)); setEditingItemId(null); }} />
+      )}
     </div>
   );
 }
@@ -2462,7 +3072,7 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
   const [open, setOpen]     = useState(false);
   const [editing, setEditing] = useState(false);
   const t=todayStr(); const raw=daily[date]; const paperEntry=raw?djEntry(raw):null; const editEntry=djEntry(raw);
-  const doneCount=habits.filter(h=>(h.logs||[]).includes(date)).length;
+  const doneCount=habits.filter(h=>habitValidated(h,date)).length;
   const sessionTotal=sessions.reduce((s,x)=>s+x.temps,0);
   const hasContent=paperEntry||sessions.length>0||habits.length>0;
 
@@ -2493,8 +3103,9 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
             <div style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Habitudes</div>
             <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
               {habits.map(h=>{
-                const done=(h.logs||[]).includes(date);
-                return <span key={h.id} onClick={()=>onToggleHabit(h.id,date)} style={{padding:"3px 10px",borderRadius:999,cursor:"pointer",fontSize:11,userSelect:"none",border:`1px solid ${done?"rgba(16,185,129,0.4)":C.border}`,background:done?"rgba(16,185,129,0.1)":"transparent",color:done?C.green:C.muted}}>{h.emoji} {h.name}{done?" ✓":""}</span>;
+                const st=(h.dailyStatus||{})[date]??null;
+                const done=st==='validated'; const inv=st==='invalidated';
+                return <span key={h.id} onClick={()=>onToggleHabit(h.id,date)} style={{padding:"3px 10px",borderRadius:999,cursor:"pointer",fontSize:11,userSelect:"none",border:`1px solid ${done?"rgba(16,185,129,0.4)":inv?"rgba(239,68,68,0.4)":C.border}`,background:done?"rgba(16,185,129,0.1)":inv?"rgba(239,68,68,0.1)":"transparent",color:done?C.green:inv?C.red:C.muted}}>{h.emoji} {h.name}{done?" ✓":inv?" ✕":""}</span>;
               })}
             </div>
           </div>
@@ -2503,8 +3114,8 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
           <div style={{marginBottom:10}}>
             <div style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Daily Paper</div>
             <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{paperEntry.type}{paperEntry.remark&&` · "${paperEntry.remark}"`}</div>
-            {["trucs_faits","lotd","gratitude","reflexions"].filter(k=>paperEntry[k]).map(k=>(
-              <div key={k} style={{fontSize:11,color:C.text,lineHeight:1.5,marginBottom:3,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{paperEntry[k]}</div>
+            {["win","loss","ameliorer"].filter(k=>paperEntry[k]).map(k=>(
+              <div key={k} style={{fontSize:11,color:C.text,lineHeight:1.5,marginBottom:3,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}><strong style={{color:k==='win'?C.green:k==='loss'?C.red:'#3b82f6'}}>{k.toUpperCase()} </strong>{paperEntry[k]}</div>
             ))}
             <div style={{display:"flex",gap:6,marginTop:8}}>
               <Btn onClick={()=>setEditing(true)} variant="ghost" style={{fontSize:11,padding:"3px 10px"}}>✎ Modifier</Btn>
@@ -2524,7 +3135,7 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
               <DJRating label="Stress" options={DJ_STRESS} value={editEntry.stress} onChange={v=>onUpdateDaily(date,"stress",v)} />
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-              {[{key:"trucs_faits",ph:"Activités..."},{key:"lotd",ph:"Appris..."},{key:"gratitude",ph:"Gratitude..."},{key:"reflexions",ph:"Réflexions..."}].map(({key,ph})=>(
+              {[{key:"win",ph:"Victoires..."},{key:"loss",ph:"Ce qui n'a pas marché..."},{key:"ameliorer",ph:"À améliorer..."}].map(({key,ph})=>(
                 <textarea key={key} value={editEntry[key]||""} onChange={e=>onUpdateDaily(date,key,e.target.value)} placeholder={ph}
                   style={{width:"100%",minHeight:50,background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"6px 8px",fontSize:11,fontFamily:"inherit",lineHeight:1.5,resize:"vertical",outline:"none",boxSizing:"border-box"}} />
               ))}
@@ -2563,6 +3174,48 @@ const avgBar = (val, max, color) => val == null ? null : (
   </div>
 );
 
+const PIE_COLORS = ['#8b5cf6','#6366f1','#10b981','#f59e0b','#ef4444','#f97316','#ec4899','#06b6d4','#84cc16','#14b8a6'];
+function PieChart({ data }) {
+  if (!data.length) return null;
+  const size = 180, cx = size/2, cy = size/2, r = size/2 - 14, ri = r * 0.52;
+  let cum = -Math.PI / 2;
+  const slices = data.map(d => {
+    const angle = (d.pct / 100) * 2 * Math.PI;
+    const s = cum; cum += angle;
+    return { ...d, s, e: cum };
+  });
+  const arc = (s, e) => {
+    if (Math.abs(e - s) >= 2 * Math.PI - 0.001) {
+      return `M ${cx} ${cy-r} A ${r} ${r} 0 1 1 ${cx-0.001} ${cy-r} Z`;
+    }
+    const x1=cx+r*Math.cos(s), y1=cy+r*Math.sin(s);
+    const x2=cx+r*Math.cos(e), y2=cy+r*Math.sin(e);
+    return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${e-s>Math.PI?1:0} 1 ${x2} ${y2} Z`;
+  };
+  return (
+    <div style={{display:'flex',gap:24,alignItems:'center',flexWrap:'wrap'}}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{flexShrink:0,filter:'drop-shadow(0 4px 16px rgba(0,0,0,0.4))'}}>
+        {slices.map((sl,i)=>(
+          <path key={i} d={arc(sl.s,sl.e)} fill={sl.color} stroke={C.surface} strokeWidth={2} />
+        ))}
+        <circle cx={cx} cy={cy} r={ri} fill={C.surface} />
+        <text x={cx} y={cy-6} textAnchor="middle" fill={C.muted} fontSize={9} fontFamily="Inter,sans-serif" fontWeight="600" letterSpacing="0.08em">TOTAL</text>
+        <text x={cx} y={cy+10} textAnchor="middle" fill={C.text} fontSize={13} fontFamily="Inter,sans-serif" fontWeight="700">{data.reduce((s,d)=>s+d.mins,0)}min</text>
+      </svg>
+      <div style={{flex:1,minWidth:160}}>
+        {data.map((d,i)=>(
+          <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8,padding:'8px 10px',borderRadius:10,background:d.color+'12',border:`1px solid ${d.color}33`}}>
+            <div style={{width:10,height:10,borderRadius:'50%',background:d.color,flexShrink:0,boxShadow:`0 0 6px ${d.color}88`}} />
+            <span style={{fontSize:13,color:C.text,fontWeight:500,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{d.name}</span>
+            <span style={{fontSize:14,fontWeight:800,color:d.color,flexShrink:0}}>{d.pct}%</span>
+            <span style={{fontSize:11,color:C.muted,flexShrink:0,minWidth:36,textAlign:'right'}}>{d.fmtMins}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function WRSection({ title, children }) {
   return (
     <div style={{marginBottom:24}}>
@@ -2579,9 +3232,19 @@ function WRSection({ title, children }) {
 function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const wkEnd = weekEnd(wkStart);
   const locked = isWeekLocked(wkStart);
+  const reviewedWeekId = getISOWeekId(new Date(wkStart + 'T12:00:00'));
+  const targetWeekId = getNextWeekId(reviewedWeekId);
   const [reviews, setReviews] = useState(() => getLS("lp_weekly_reviews", []));
   const existing = reviews.find(r => r.weekStart === wkStart);
   const [note, setNote] = useState(existing?.note || "");
+  const [wrWin, setWrWin] = useState(existing?.win || "");
+  const [wrLoss, setWrLoss] = useState(existing?.loss || "");
+  const [wrAmeliorer, setWrAmeliorer] = useState(existing?.ameliorer || "");
+  const [wrCustomItems, setWrCustomItems] = useState(existing?.customItems || []);
+  const [weeklyObjs, setWeeklyObjs] = useState(() => getLS("lp_weekly_objectives", []));
+  const [newObjInput, setNewObjInput] = useState("");
+  const [editObjId, setEditObjId] = useState(null);
+  const [editObjTitle, setEditObjTitle] = useState("");
   const [saved, setSaved] = useState(false);
 
   const habits  = getLS("lp_habits", []);
@@ -2589,21 +3252,34 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const sessions= getLS("lp_workperf", []);
   const daily   = getLS("lp_daily", {});
 
+  const saveObjs = o => { setWeeklyObjs(o); setLS("lp_weekly_objectives", o); };
+  const currentObjs = weeklyObjs.filter(o => o.weekId === reviewedWeekId);
+  const nextObjs = weeklyObjs.filter(o => o.weekId === targetWeekId);
+  const updateObjStatus = (id, patch) => saveObjs(weeklyObjs.map(o=>o.id===id?{...o,...patch}:o));
+  const addNextObj = () => {
+    if (!newObjInput.trim()) return;
+    saveObjs([...weeklyObjs, {id:uid(), weekId:targetWeekId, title:newObjInput.trim(), completed:false, missed:false, partial:false, note:'', createdAt:new Date().toISOString()}]);
+    setNewObjInput("");
+  };
+  const deleteObj = id => saveObjs(weeklyObjs.filter(o=>o.id!==id));
+  const startEditObj = obj => { setEditObjId(obj.id); setEditObjTitle(obj.title); };
+  const commitEditObj = id => { saveObjs(weeklyObjs.map(o=>o.id===id?{...o,title:editObjTitle}:o)); setEditObjId(null); };
+
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(wkStart + "T12:00:00"); d.setDate(d.getDate() + i);
     return d.toISOString().split("T")[0];
   });
 
   // Stats
-  const habitsDaysAll = weekDays.filter(d => habits.length > 0 && habits.every(h => (h.logs||[]).includes(d))).length;
-  const habitsTotalDone = habits.length > 0 ? weekDays.reduce((s,d) => s + habits.filter(h=>(h.logs||[]).includes(d)).length, 0) : 0;
+  const habitsDaysAll = weekDays.filter(d => habits.length > 0 && habits.every(h => habitValidated(h, d))).length;
+  const habitsTotalDone = habits.length > 0 ? weekDays.reduce((s,d) => s + habits.filter(h=>habitValidated(h,d)).length, 0) : 0;
   const habitsTotal = habits.length * 7;
   const habitsPct = habitsTotal > 0 ? Math.round(habitsTotalDone / habitsTotal * 100) : 0;
   const sessionsWeek  = sessions.filter(s => weekDays.includes(s.date));
   const sessionsMins  = sessionsWeek.reduce((s, x) => s + (x.temps||0), 0);
   const todosWeek     = todos.filter(t => t.gtd==="projet" && t.done && t.doneAt && weekDays.includes(t.doneAt.slice(0,10)));
   const dailyEntries  = weekDays.map(d => ({ date: d, entry: djEntry(daily[d]) }));
-  const dailyCount    = dailyEntries.filter(({entry:e}) => e.morning||e.trucs_faits||e.reflexions).length;
+  const dailyCount    = dailyEntries.filter(({entry:e}) => e.morning||e.win||e.loss||e.remark).length;
 
   // Daily averages
   const energyVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.morning)).filter(v=>v!=null);
@@ -2620,7 +3296,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
     const review = {
       id: existing?.id || uid(),
       weekStart: wkStart, weekEnd: wkEnd,
-      note,
+      note, win: wrWin, loss: wrLoss, ameliorer: wrAmeliorer, customItems: wrCustomItems,
       summary: { habitsDaysAll, habitsPct, sessionsMins, sessionsCount: sessionsWeek.length, todosCompleted: todosWeek.length, dailyCount, avgEnergy, avgFocus, avgStress },
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -2661,7 +3337,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
             {[
               {icon:"🔥",label:"Remplissage habitudes",value:`${habitsPct}%`,sub:`${habitsTotalDone}/${habitsTotal} complétées`,color:C.orange},
               {icon:"✅",label:"Projets terminés",value:String(todosWeek.length),sub:`cette semaine`,color:C.green},
-              {icon:"⚡",label:"Temps de travail",value:fmtMin(sessionsMins),sub:`${sessionsWeek.length} sessions`,color:C.blue},
+              {icon:"⚡",label:"Temps de travail",value:fmtHM(sessionsMins),sub:`${sessionsWeek.length} sessions`,color:C.blue},
               {icon:"📓",label:"Journaux remplis",value:`${dailyCount}/7`,sub:`entrées daily`,color:C.purple},
             ].map(({icon,label,value,sub,color})=>(
               <div key={label} style={{padding:"16px",background:C.surface2,borderRadius:16,border:`1px solid ${C.border}`,textAlign:"center"}}>
@@ -2692,17 +3368,18 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                   </thead>
                   <tbody>
                     {habits.map(h => {
-                      const total = weekDays.filter(d=>(h.logs||[]).includes(d)).length;
+                      const total = weekDays.filter(d=>habitValidated(h,d)).length;
                       return (
                         <tr key={h.id} style={{borderTop:`1px solid ${C.border}`}}>
                           <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>
                             <span style={{marginRight:6}}>{h.emoji||"•"}</span>{h.name}
                           </td>
                           {weekDays.map(d=>{
-                            const done=(h.logs||[]).includes(d);
+                            const st=(h.dailyStatus||{})[d]??null;
+                            const done=st==='validated'; const inv=st==='invalidated';
                             return (
                               <td key={d} style={{padding:"8px",textAlign:"center"}}>
-                                <span style={{fontSize:16,color:done?C.green:C.surface3}}>{done?"✓":"✗"}</span>
+                                <span style={{fontSize:16,color:done?C.green:inv?C.red:C.surface3}}>{done?"✓":inv?"✗":"·"}</span>
                               </td>
                             );
                           })}
@@ -2716,7 +3393,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                     <tr style={{borderTop:`2px solid ${C.border}`,background:C.surface3}}>
                       <td style={{padding:"8px 10px",color:C.muted,fontSize:11,fontWeight:600}}>TOTAL DU JOUR</td>
                       {weekDays.map(d=>{
-                        const done=habits.filter(h=>(h.logs||[]).includes(d)).length;
+                        const done=habits.filter(h=>habitValidated(h,d)).length;
                         const full=done===habits.length&&habits.length>0;
                         return (
                           <td key={d} style={{padding:"8px",textAlign:"center",fontWeight:700,fontSize:12,color:full?C.green:done>0?C.amber:C.faint}}>
@@ -2725,7 +3402,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                         );
                       })}
                       <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:C.accent,fontSize:12}}>
-                        {weekDays.reduce((s,d)=>s+habits.filter(h=>(h.logs||[]).includes(d)).length,0)}/{habits.length*7}
+                        {weekDays.reduce((s,d)=>s+habits.filter(h=>habitValidated(h,d)).length,0)}/{habits.length*7}
                       </td>
                     </tr>
                   </tbody>
@@ -2757,7 +3434,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
               <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
                 {weekDays.map((d,i)=>{
                   const e=djEntry(daily[d]);
-                  const hasData=e.morning||e.trucs_faits||e.reflexions||e.lotd||e.focus||e.stress;
+                  const hasData=e.morning||e.win||e.loss||e.ameliorer||e.focus||e.stress;
                   const en=emojiVal(DJ_ENERGY,e.morning);
                   const fo=emojiVal(DJ_FOCUS,e.focus);
                   const st=emojiVal(DJ_STRESS,e.stress);
@@ -2770,8 +3447,8 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                           {en&&<div style={{fontSize:9,marginBottom:3,color:C.amber}} title="Énergie">⚡ {en}/5</div>}
                           {fo&&<div style={{fontSize:9,marginBottom:3,color:C.blue}} title="Focus">❖ {fo}/5</div>}
                           {st&&<div style={{fontSize:9,marginBottom:6,color:C.red}} title="Stress">✶ {st}/5</div>}
-                          {e.trucs_faits&&<div style={{fontSize:9,color:C.muted,lineHeight:1.4,borderTop:`1px solid ${C.border}`,paddingTop:4,marginBottom:2}}><span style={{color:C.faint}}>✔ </span>{e.trucs_faits.length>60?e.trucs_faits.slice(0,60)+"…":e.trucs_faits}</div>}
-                          {e.lotd&&<div style={{fontSize:9,color:C.purple,lineHeight:1.4,marginTop:2}}><span>💡 </span>{e.lotd.length>60?e.lotd.slice(0,60)+"…":e.lotd}</div>}
+                          {e.win&&<div style={{fontSize:9,color:C.green,lineHeight:1.4,borderTop:`1px solid ${C.border}`,paddingTop:4,marginBottom:2}}>🏆 {e.win.length>60?e.win.slice(0,60)+"…":e.win}</div>}
+                          {e.loss&&<div style={{fontSize:9,color:C.red,lineHeight:1.4,marginTop:2}}>💔 {e.loss.length>60?e.loss.slice(0,60)+"…":e.loss}</div>}
                         </>
                       ) : (
                         <div style={{fontSize:9,color:C.faint,textAlign:"center",paddingTop:4}}>—</div>
@@ -2781,16 +3458,16 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                 })}
               </div>
               {/* Reflexions notables */}
-              {dailyEntries.filter(({entry:e})=>e.reflexions).map(({date,entry:e})=>(
-                <div key={date} style={{marginTop:8,padding:"10px 14px",background:C.surface2,borderRadius:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.purple}`}}>
-                  <div style={{fontSize:10,color:C.purple,fontWeight:600,marginBottom:4}}>{fmtDshort(date)} — Réflexions</div>
-                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{e.reflexions}</div>
+              {dailyEntries.filter(({entry:e})=>e.win).map(({date,entry:e})=>(
+                <div key={date+"w"} style={{marginTop:8,padding:"10px 14px",background:C.surface2,borderRadius:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.green}`}}>
+                  <div style={{fontSize:10,color:C.green,fontWeight:600,marginBottom:4}}>{fmtDshort(date)} — WIN</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{e.win}</div>
                 </div>
               ))}
-              {dailyEntries.filter(({entry:e})=>e.gratitude).map(({date,entry:e})=>(
-                <div key={date+"g"} style={{marginTop:8,padding:"10px 14px",background:C.surface2,borderRadius:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.amber}`}}>
-                  <div style={{fontSize:10,color:C.amber,fontWeight:600,marginBottom:4}}>{fmtDshort(date)} — Gratitude</div>
-                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{e.gratitude}</div>
+              {dailyEntries.filter(({entry:e})=>e.loss).map(({date,entry:e})=>(
+                <div key={date+"l"} style={{marginTop:8,padding:"10px 14px",background:C.surface2,borderRadius:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.red}`}}>
+                  <div style={{fontSize:10,color:C.red,fontWeight:600,marginBottom:4}}>{fmtDshort(date)} — LOSS</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{e.loss}</div>
                 </div>
               ))}
             </WRSection>
@@ -2831,6 +3508,21 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
             </WRSection>
           )}
 
+          {/* ── CAMEMBERT SESSIONS ── */}
+          {sessionsWeek.length > 0 && (() => {
+            const map = {};
+            sessionsWeek.forEach(s => { const d=s.domaine||'AUTRE'; map[d]=(map[d]||0)+(s.temps||0); });
+            const total = Object.values(map).reduce((a,b)=>a+b,0);
+            const pieData = Object.entries(map)
+              .sort(([,a],[,b])=>b-a)
+              .map(([name,mins],i) => ({name,mins,pct:total?Math.round(mins/total*100):0,color:PIE_COLORS[i%PIE_COLORS.length],fmtMins:fmtMin(mins)}));
+            return (
+              <WRSection title="Répartition par domaine">
+                <PieChart data={pieData} />
+              </WRSection>
+            );
+          })()}
+
           {/* ── TODOS COMPLÉTÉS ── */}
           {todosWeek.length > 0 && (
             <WRSection title="Projets complétés">
@@ -2851,14 +3543,121 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
             </WRSection>
           )}
 
+          {/* ── OBJECTIFS DE SEMAINE ── */}
+          <WRSection title="OBJECTIFS DE SEMAINE">
+            {currentObjs.length > 0 && (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:10,textTransform:'uppercase',letterSpacing:'0.06em'}}>Cette semaine — bilan</div>
+                {currentObjs.map(obj=>{
+                  const isDone=obj.completed, isMissed=obj.missed, isPartial=obj.partial;
+                  const statusColor = isDone?C.green:isPartial?C.amber:isMissed?C.red:C.border;
+                  const statusBg = isDone?'rgba(16,185,129,0.08)':isPartial?'rgba(245,158,11,0.08)':isMissed?'rgba(239,68,68,0.08)':C.surface2;
+                  return (
+                    <div key={obj.id} style={{borderRadius:14,marginBottom:10,background:statusBg,border:`1px solid ${statusColor}`,transition:'all 0.2s'}}>
+                      {editObjId===obj.id ? (
+                        <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px'}}>
+                          <input autoFocus value={editObjTitle} onChange={e=>setEditObjTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')commitEditObj(obj.id);if(e.key==='Escape')setEditObjId(null);}}
+                            style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${C.accent}`,color:C.text,fontSize:14,padding:'2px 0',fontFamily:'inherit',outline:'none'}} />
+                          <button onClick={()=>commitEditObj(obj.id)} style={{padding:'4px 10px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer'}}>OK</button>
+                          <button onClick={()=>setEditObjId(null)} style={{padding:'4px 8px',borderRadius:8,border:'none',background:'transparent',color:C.muted,fontSize:11,cursor:'pointer'}}>✕</button>
+                        </div>
+                      ) : (
+                        <div style={{padding:'12px 14px'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                            <span style={{flex:1,fontSize:14,fontWeight:600,color:isDone?C.green:isPartial?C.amber:isMissed?C.red:C.text}}>{obj.title}</span>
+                            <button onClick={()=>startEditObj(obj)} style={{background:'none',border:'none',color:C.faint,fontSize:12,cursor:'pointer',padding:'2px 4px',flexShrink:0}}>✏️</button>
+                          </div>
+                          <div style={{display:'flex',gap:6,marginBottom:obj.completed||obj.missed||obj.partial?10:0}}>
+                            <button onClick={()=>updateObjStatus(obj.id,{completed:!isDone,missed:false,partial:false})}
+                              style={{flex:1,padding:'6px 4px',borderRadius:8,border:`1px solid ${isDone?C.green:'rgba(16,185,129,0.3)'}`,background:isDone?C.green:'rgba(16,185,129,0.1)',color:isDone?'#fff':'#10b981',fontWeight:700,fontSize:11,cursor:'pointer'}}>
+                              ✅ Validé
+                            </button>
+                            <button onClick={()=>updateObjStatus(obj.id,{partial:!isPartial,completed:false,missed:false})}
+                              style={{flex:1,padding:'6px 4px',borderRadius:8,border:`1px solid ${isPartial?C.amber:'rgba(245,158,11,0.3)'}`,background:isPartial?C.amber:'rgba(245,158,11,0.1)',color:isPartial?'#fff':'#f59e0b',fontWeight:700,fontSize:11,cursor:'pointer'}}>
+                              🔶 Partiel
+                            </button>
+                            <button onClick={()=>updateObjStatus(obj.id,{missed:!isMissed,completed:false,partial:false})}
+                              style={{flex:1,padding:'6px 4px',borderRadius:8,border:`1px solid ${isMissed?C.red:'rgba(239,68,68,0.3)'}`,background:isMissed?C.red:'rgba(239,68,68,0.1)',color:isMissed?'#fff':'#ef4444',fontWeight:700,fontSize:11,cursor:'pointer'}}>
+                              ❌ Raté
+                            </button>
+                          </div>
+                          <textarea value={obj.note||''} onChange={e=>updateObjStatus(obj.id,{note:e.target.value})} placeholder="Préciser l'atteinte de l'objectif..."
+                            rows={2} style={{width:'100%',background:'transparent',border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:'8px 10px',fontSize:12,fontFamily:'inherit',resize:'vertical',outline:'none',boxSizing:'border-box',lineHeight:1.5}} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:10,textTransform:'uppercase',letterSpacing:'0.06em'}}>Semaine suivante ({targetWeekId}) — objectifs</div>
+              <div style={{display:'flex',gap:8,marginBottom:12}}>
+                <input value={newObjInput} onChange={e=>setNewObjInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addNextObj()} placeholder="Nouvel objectif..."
+                  style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'10px 14px',borderRadius:12,fontSize:13,fontFamily:'inherit',outline:'none'}} />
+                <button onClick={addNextObj} style={{background:GRAD,color:'#fff',border:'none',borderRadius:12,padding:'10px 18px',fontWeight:700,fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}}>+ Ajouter</button>
+              </div>
+              {nextObjs.map(obj=>(
+                <div key={obj.id} style={{borderRadius:10,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`}}>
+                  {editObjId===obj.id ? (
+                    <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 14px'}}>
+                      <input autoFocus value={editObjTitle} onChange={e=>setEditObjTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')commitEditObj(obj.id);if(e.key==='Escape')setEditObjId(null);}}
+                        style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${C.accent}`,color:C.text,fontSize:13,padding:'2px 0',fontFamily:'inherit',outline:'none'}} />
+                      <button onClick={()=>commitEditObj(obj.id)} style={{padding:'4px 10px',borderRadius:8,border:'none',background:C.accent,color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer'}}>OK</button>
+                      <button onClick={()=>setEditObjId(null)} style={{padding:'4px 8px',borderRadius:8,border:'none',background:'transparent',color:C.muted,fontSize:11,cursor:'pointer'}}>✕</button>
+                    </div>
+                  ) : (
+                    <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 14px'}}>
+                      <span style={{flex:1,fontSize:13,color:C.text}}>{obj.title}</span>
+                      <button onClick={()=>startEditObj(obj)} style={{background:'none',border:'none',color:C.muted,fontSize:13,cursor:'pointer',padding:'2px 4px',lineHeight:1}}>✏️</button>
+                      <span onClick={()=>deleteObj(obj.id)} style={{fontSize:14,color:C.faint,cursor:'pointer'}}>×</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </WRSection>
+
+          {/* ── RÉTROSPECTIVE ── */}
+          <WRSection title="RÉTROSPECTIVE">
+            {[
+              {key:'win',label:'WIN',icon:'🏆',color:'#10b981',setter:setWrWin,val:wrWin,ph:'Victoires de la semaine...'},
+              {key:'loss',label:'LOSS',icon:'💔',color:'#ef4444',setter:setWrLoss,val:wrLoss,ph:'Ce qui n\'a pas marché...'},
+              {key:'ameliorer',label:'À AMÉLIORER',icon:'🔧',color:'#3b82f6',setter:setWrAmeliorer,val:wrAmeliorer,ph:'Ce que tu veux améliorer...'},
+            ].map(({label,icon,color,setter,val,ph})=>(
+              <div key={label} style={{borderLeft:`4px solid ${color}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
+                <label style={{color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:1,display:'block',marginBottom:8}}>{icon} {label}</label>
+                <textarea value={val} onChange={e=>!locked&&setter(e.target.value)} readOnly={locked} placeholder={locked?"Verrouillé.":ph}
+                  rows={3} style={{width:'100%',background:'transparent',border:'none',color:locked?C.muted:C.text,resize:'vertical',fontFamily:'inherit',fontSize:13,lineHeight:1.6,outline:'none',boxSizing:'border-box',cursor:locked?'default':'text'}} />
+              </div>
+            ))}
+            {wrCustomItems.map(item=>(
+              <div key={item.id} style={{borderLeft:`4px solid ${C.borderMid}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+                  <input value={item.title} onChange={e=>!locked&&setWrCustomItems(s=>s.map(x=>x.id===item.id?{...x,title:e.target.value}:x))}
+                    readOnly={locked} style={{flex:1,background:'transparent',border:'none',color:C.accent,fontWeight:700,fontSize:11,textTransform:'uppercase',fontFamily:'inherit',outline:'none'}} />
+                  {!locked && <span onClick={()=>setWrCustomItems(s=>s.filter(x=>x.id!==item.id))} style={{fontSize:14,color:C.faint,cursor:'pointer'}}>🗑️</span>}
+                </div>
+                <textarea value={item.content||''} onChange={e=>!locked&&setWrCustomItems(s=>s.map(x=>x.id===item.id?{...x,content:e.target.value}:x))}
+                  readOnly={locked} rows={3} style={{width:'100%',background:'transparent',border:'none',color:locked?C.muted:C.text,resize:'vertical',fontFamily:'inherit',fontSize:13,lineHeight:1.6,outline:'none',boxSizing:'border-box'}} />
+              </div>
+            ))}
+            {!locked && (
+              <button onClick={()=>setWrCustomItems(s=>[...s,{id:uid(),title:'Item personnalisé',content:''}])}
+                style={{width:'100%',padding:'10px',borderRadius:12,border:`1px dashed ${C.borderMid}`,background:'transparent',color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                + Ajouter un item
+              </button>
+            )}
+          </WRSection>
+
           {/* ── NOTE & BILAN ── */}
           <WRSection title={locked?"Bilan de la semaine 🔒":"Bilan & note de la semaine"}>
             <textarea
               value={note}
               onChange={e=>!locked&&setNote(e.target.value)}
               readOnly={locked}
-              placeholder={locked?"Semaine verrouillée — lecture seule.":"Qu'est-ce qui s'est bien passé ? Qu'est-ce qui n'a pas marché ? Quoi refaire, quoi éviter la semaine prochaine ?"}
-              style={{width:"100%",minHeight:150,padding:"14px 16px",background:locked?C.surface3:C.surface2,border:`1px solid ${locked?C.border:C.borderMid}`,borderRadius:14,color:locked?C.muted:C.text,fontSize:13,fontFamily:"inherit",resize:"vertical",lineHeight:1.7,boxSizing:"border-box",cursor:locked?"default":"text",outline:"none"}}
+              placeholder={locked?"Semaine verrouillée — lecture seule.":"Notes libres sur la semaine..."}
+              style={{width:"100%",minHeight:100,padding:"14px 16px",background:locked?C.surface3:C.surface2,border:`1px solid ${locked?C.border:C.borderMid}`,borderRadius:14,color:locked?C.muted:C.text,fontSize:13,fontFamily:"inherit",resize:"vertical",lineHeight:1.7,boxSizing:"border-box",cursor:locked?"default":"text",outline:"none"}}
             />
             {!locked && (
               <button onClick={save} style={{width:"100%",marginTop:12,padding:"15px",borderRadius:14,background:saved?C.green:GRAD,color:"#fff",fontSize:14,fontWeight:700,fontFamily:"inherit",border:"none",cursor:"pointer",transition:TR,boxShadow:saved?"none":GLOW}}>
@@ -2896,7 +3695,14 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyRe
   const toggleWR = wk => setOpenWeeksR(s=>{const n=new Set(s);n.has(wk)?n.delete(wk):n.add(wk);return n;});
   const saveHabits = h=>{setHabits(h);setLS("lp_habits",h);};
   const saveDaily  = d=>{setDaily(d);setLS("lp_daily",d);};
-  const onToggleHabit = (hid,date) => saveHabits(habits.map(h=>{if(h.id!==hid)return h;const logs=h.logs||[];return{...h,logs:logs.includes(date)?logs.filter(x=>x!==date):[...logs,date]};}));
+  const onToggleHabit = (hid,date) => saveHabits(habits.map(h=>{
+    if(h.id!==hid)return h;
+    const ds=h.dailyStatus||{};
+    const cur=ds[date]??null; const next=cycleHabitStatus(cur);
+    const newDs={...ds}; if(next===null)delete newDs[date]; else newDs[date]=next;
+    const logs=(h.logs||[]).filter(x=>x!==date); if(next==='validated')logs.push(date);
+    return{...h,dailyStatus:newDs,logs};
+  }));
   const onDeleteDaily = date => { const {[date]:_,...rest}=daily; saveDaily(rest); };
   const onUpdateDaily = (date,field,val) => { const e=djEntry(daily[date]); saveDaily({...daily,[date]:{...e,[field]:val}}); };
   const sessByDate = {};
@@ -2904,7 +3710,7 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyRe
   const dayCard = date => <DayLogCard key={date} date={date} habits={habits} daily={daily} sessions={sessByDate[date]||[]} onToggleHabit={onToggleHabit} onDeleteDaily={onDeleteDaily} onUpdateDaily={onUpdateDaily} />;
   const allDates=new Set();
   habits.forEach(h=>(h.logs||[]).forEach(d=>allDates.add(d)));
-  Object.keys(daily).forEach(d=>{const e=djEntry(daily[d]);if(e.morning||e.trucs_faits||e.lotd||e.gratitude||e.reflexions||e.remark)allDates.add(d);});
+  Object.keys(daily).forEach(d=>{const e=djEntry(daily[d]);if(e.morning||e.win||e.loss||e.ameliorer||e.remark)allDates.add(d);});
   sessions.forEach(s=>allDates.add(s.date));
   const byWeek={};
   [...allDates].sort((a,b)=>b.localeCompare(a)).forEach(d=>{(byWeek[weekStart(d)]??=[]).push(d);});
@@ -3153,6 +3959,12 @@ export default function App({ session, signOut }) {
   const [viewMode, setViewMode] = useState(()=>getLS("lp_view_mode","pc"));
   const [syncStatus, setSyncStatus] = useState(null);
   const [wrModal, setWrModal] = useState(null);
+  const [showSessionChoice, setShowSessionChoice] = useState(false);
+  const [showSessionLive, setShowSessionLive] = useState(false);
+  const [showSessionLog, setShowSessionLog] = useState(false);
+  const [activeSession, setActiveSession] = useState(() => {
+    try { const raw=localStorage.getItem(LS_SESSION_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+  });
   const touchRef = useRef(null);
   const mobile = viewMode === "mobile" && window.innerWidth >= 600;
 
@@ -3160,6 +3972,24 @@ export default function App({ session, signOut }) {
     _userId = session?.user?.id ?? null;
     _onSyncStatus = setSyncStatus;
   }, [session]);
+
+  const handleSessionStart = (s) => {
+    localStorage.setItem(LS_SESSION_KEY, JSON.stringify(s));
+    setActiveSession(s);
+  };
+  const handleSessionStop = useCallback(() => {
+    const raw = localStorage.getItem(LS_SESSION_KEY);
+    if (raw) {
+      try {
+        const { name, category, startTime } = JSON.parse(raw);
+        const durationMinutes = Math.round((Date.now() - startTime) / 60000) || 1;
+        const sessions = getLS("lp_workperf", []);
+        setLS("lp_workperf", [...sessions, {id:uid(),tache:name,date:todayStr(),temps:durationMinutes,type:'DEEP',domaine:category,efficience:'💡💡💡',startTime:new Date(startTime).toISOString(),endTime:new Date().toISOString()}]);
+      } catch {}
+    }
+    localStorage.removeItem(LS_SESSION_KEY);
+    setActiveSession(null);
+  }, []);
 
   const setView = v => { setViewMode(v); setLS("lp_view_mode", v); };
 
@@ -3182,13 +4012,14 @@ export default function App({ session, signOut }) {
       onTouchEnd={onTouchEnd}
     >
       <div key={module} className="fade-in">
-        {module === "dashboard" && <Dashboard onNav={setModule} onOpenLogs={()=>setLogsOpen(true)} />}
+        {module === "dashboard" && <Dashboard onNav={setModule} onOpenLogs={()=>setLogsOpen(true)} onRequestSession={()=>setShowSessionChoice(true)} />}
         {module === "objectifs" && <ObjectifsModule />}
         {module === "habitudes" && <HabitudesModule />}
-        {module === "workperf"  && <WorkPerfModule />}
+        {module === "workperf"  && <WorkPerfModule activeSession={activeSession} onSessionStart={handleSessionStart} onSessionStop={handleSessionStop} />}
         {module === "daily"     && <DailyPaperModule />}
         {module === "todo"      && <TodoModule />}
       </div>
+      <ActiveSessionWidget session={activeSession} onStop={handleSessionStop} />
       <BottomNav current={module} onNav={setModule} mobile={mobile} />
       {/* Logs slide-over panel */}
       <div style={{ position:"fixed", inset:0, zIndex:200, pointerEvents:logsOpen?"all":"none" }}>
@@ -3216,6 +4047,20 @@ export default function App({ session, signOut }) {
           onSaved={wrModal.onSaved}
         />
       )}
+      {showSessionChoice && (
+        <SessionChoiceModal
+          onClose={()=>setShowSessionChoice(false)}
+          onLive={()=>{setShowSessionChoice(false);setShowSessionLive(true);}}
+          onLog={()=>{setShowSessionChoice(false);setShowSessionLog(true);}}
+        />
+      )}
+      {showSessionLive && (
+        <LiveStartForm
+          onClose={()=>setShowSessionLive(false)}
+          onLaunch={(name,cat)=>{handleSessionStart({name,category:cat,startTime:Date.now()});setShowSessionLive(false);}}
+        />
+      )}
+      {showSessionLog && <SessionLogForm onClose={()=>setShowSessionLog(false)} />}
     </div>
   );
 
