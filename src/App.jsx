@@ -3384,7 +3384,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                             );
                           })}
                           <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:total===7?C.green:total>=4?C.amber:C.red}}>
-                            {total}/7
+                            {Math.round(total/7*100)}%
                           </td>
                         </tr>
                       );
@@ -3397,12 +3397,12 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                         const full=done===habits.length&&habits.length>0;
                         return (
                           <td key={d} style={{padding:"8px",textAlign:"center",fontWeight:700,fontSize:12,color:full?C.green:done>0?C.amber:C.faint}}>
-                            {done}/{habits.length}
+                            {habits.length>0?Math.round(done/habits.length*100)+'%':'—'}
                           </td>
                         );
                       })}
                       <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:C.accent,fontSize:12}}>
-                        {weekDays.reduce((s,d)=>s+habits.filter(h=>habitValidated(h,d)).length,0)}/{habits.length*7}
+                        {habits.length*7>0?Math.round(weekDays.reduce((s,d)=>s+habits.filter(h=>habitValidated(h,d)).length,0)/(habits.length*7)*100)+'%':'—'}
                       </td>
                     </tr>
                   </tbody>
