@@ -3200,7 +3200,7 @@ function PieChart({ data }) {
         ))}
         <circle cx={cx} cy={cy} r={ri} fill={C.surface} />
         <text x={cx} y={cy-6} textAnchor="middle" fill={C.muted} fontSize={9} fontFamily="Inter,sans-serif" fontWeight="600" letterSpacing="0.08em">TOTAL</text>
-        <text x={cx} y={cy+10} textAnchor="middle" fill={C.text} fontSize={13} fontFamily="Inter,sans-serif" fontWeight="700">{data.reduce((s,d)=>s+d.mins,0)}min</text>
+        <text x={cx} y={cy+10} textAnchor="middle" fill={C.text} fontSize={13} fontFamily="Inter,sans-serif" fontWeight="700">{fmtHM(data.reduce((s,d)=>s+d.mins,0))}</text>
       </svg>
       <div style={{flex:1,minWidth:160}}>
         {data.map((d,i)=>(
