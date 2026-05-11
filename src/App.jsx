@@ -741,9 +741,10 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
       if (h.id !== habitId) return h;
       const is = { ...(h.itemStatus || {}) };
       const dayItems = { ...(is[t] || {}) };
-      dayItems[itemId] = !dayItems[itemId];
+      dayItems[itemId] = cycleHabitStatus(dayItems[itemId] ?? null);
+      if (dayItems[itemId] === null) delete dayItems[itemId];
       is[t] = dayItems;
-      const allDone = (h.items||[]).length > 0 && (h.items||[]).every(it => dayItems[it.id]);
+      const allDone = (h.items||[]).length > 0 && (h.items||[]).every(it => dayItems[it.id] === 'validated');
       const ds = { ...(h.dailyStatus || {}) };
       const logs = (h.logs||[]).filter(x=>x!==t);
       if (allDone) { ds[t] = 'validated'; logs.push(t); } else delete ds[t];
@@ -963,8 +964,12 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                   const isDone = status === 'validated';
                   const isExpanded = expandedHabitId === h.id;
                   const dayItems = (h.itemStatus||{})[t] || {};
-                  const doneCount = (h.items||[]).filter(it=>dayItems[it.id]).length;
+                  const validatedCount = (h.items||[]).filter(it=>dayItems[it.id]==='validated').length;
+                  const hasInvalid = (h.items||[]).some(it=>dayItems[it.id]==='invalidated');
                   const total = (h.items||[]).length;
+                  const badgeColor = isDone?C.green:hasInvalid?C.red:C.accent;
+                  const badgeBg = isDone?"rgba(16,185,129,0.18)":hasInvalid?"rgba(239,68,68,0.15)":"rgba(139,92,246,0.12)";
+                  const badgeBorder = isDone?"rgba(16,185,129,0.3)":hasInvalid?"rgba(239,68,68,0.3)":C.border;
                   return (
                     <div key={h.id} style={{marginBottom:8}}>
                       <div onClick={()=>setExpandedHabitId(isExpanded?null:h.id)} style={{
@@ -977,18 +982,20 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                         <span style={{fontSize:22,flexShrink:0}}>{h.emoji}</span>
                         <span style={{flex:1,fontSize:15,fontWeight:500,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none",transition:TR}}>{h.name}</span>
                         <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{padding:"3px 9px",borderRadius:999,fontSize:12,fontWeight:700,background:isDone?"rgba(16,185,129,0.18)":"rgba(139,92,246,0.12)",color:isDone?C.green:C.accent,border:`1px solid ${isDone?"rgba(16,185,129,0.3)":C.border}`}}>{doneCount}/{total}</div>
+                          <div style={{padding:"3px 9px",borderRadius:999,fontSize:12,fontWeight:700,background:badgeBg,color:badgeColor,border:`1px solid ${badgeBorder}`}}>{validatedCount}/{total}</div>
                           <span style={{fontSize:11,color:C.muted,transition:"transform 0.2s",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
                         </div>
                       </div>
                       {isExpanded && (
                         <div style={{background:C.surface2,borderRadius:"0 0 16px 16px",border:`1px solid ${C.border}`,borderTop:"none",padding:"6px 16px 10px"}}>
                           {(h.items||[]).map(item=>{
-                            const checked=!!(dayItems[item.id]);
+                            const itemStatus = dayItems[item.id] ?? null;
+                            const isVal = itemStatus==='validated';
+                            const isInv = itemStatus==='invalidated';
                             return (
                               <div key={item.id} onClick={()=>toggleHabitItem(h.id,item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",cursor:"pointer",borderBottom:`1px solid rgba(139,92,246,0.07)`}}>
-                                <div style={{width:20,height:20,borderRadius:5,flexShrink:0,background:checked?C.green:"transparent",border:`2px solid ${checked?C.green:"rgba(139,92,246,0.35)"}`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,transition:TR}}>{checked&&"✓"}</div>
-                                <span style={{fontSize:14,color:checked?C.muted:C.text,textDecoration:checked?"line-through":"none"}}>{item.name}</span>
+                                <div style={{width:20,height:20,borderRadius:5,flexShrink:0,background:isVal?C.green:isInv?C.red:"transparent",border:`2px solid ${isVal?C.green:isInv?C.red:"rgba(139,92,246,0.35)"}`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,transition:TR}}>{isVal?"✓":isInv?"✕":null}</div>
+                                <span style={{fontSize:14,color:isVal?C.muted:isInv?C.red:C.text,textDecoration:isVal?"line-through":"none"}}>{item.name}</span>
                               </div>
                             );
                           })}
@@ -2411,9 +2418,10 @@ function HabitudesModule() {
       if (h.id !== habitId) return h;
       const is = { ...(h.itemStatus || {}) };
       const dayItems = { ...(is[d] || {}) };
-      dayItems[itemId] = !dayItems[itemId];
+      dayItems[itemId] = cycleHabitStatus(dayItems[itemId] ?? null);
+      if (dayItems[itemId] === null) delete dayItems[itemId];
       is[d] = dayItems;
-      const allDone = (h.items||[]).length > 0 && (h.items||[]).every(it => dayItems[it.id]);
+      const allDone = (h.items||[]).length > 0 && (h.items||[]).every(it => dayItems[it.id] === 'validated');
       const ds = { ...(h.dailyStatus || {}) };
       const logs = (h.logs||[]).filter(x=>x!==d);
       if (allDone) { ds[d] = 'validated'; logs.push(d); } else delete ds[d];
@@ -2471,8 +2479,12 @@ function HabitudesModule() {
                   const isExpanded = expandedHabitId === h.id;
                   if (h.multiple) {
                     const dayItems = (h.itemStatus||{})[t] || {};
-                    const doneCount = (h.items||[]).filter(it=>dayItems[it.id]).length;
+                    const validatedCount = (h.items||[]).filter(it=>dayItems[it.id]==='validated').length;
+                    const hasInvalid = (h.items||[]).some(it=>dayItems[it.id]==='invalidated');
                     const total = (h.items||[]).length;
+                    const badgeColor = isDone?C.green:hasInvalid?C.red:C.accent;
+                    const badgeBg = isDone?"rgba(16,185,129,0.18)":hasInvalid?"rgba(239,68,68,0.15)":"rgba(139,92,246,0.12)";
+                    const badgeBorder = isDone?"rgba(16,185,129,0.3)":hasInvalid?"rgba(239,68,68,0.3)":C.border;
                     return (
                       <div key={h.id} style={{marginBottom:8}}>
                         <div style={{
@@ -2488,34 +2500,26 @@ function HabitudesModule() {
                             {s>0&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>🔥 {s} jour{s>1?"s":""}</div>}
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div style={{
-                              padding:"4px 10px",borderRadius:999,fontSize:13,fontWeight:700,
-                              background:isDone?"rgba(16,185,129,0.18)":"rgba(139,92,246,0.12)",
-                              color:isDone?C.green:C.accent,border:`1px solid ${isDone?"rgba(16,185,129,0.3)":C.border}`,
-                            }}>{doneCount}/{total}</div>
+                            <div style={{padding:"4px 10px",borderRadius:999,fontSize:13,fontWeight:700,background:badgeBg,color:badgeColor,border:`1px solid ${badgeBorder}`}}>{validatedCount}/{total}</div>
                             <span style={{fontSize:12,color:C.muted,transition:"transform 0.2s",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
                           </div>
                         </div>
                         {isExpanded && (
-                          <div style={{
-                            background:C.surface2,borderRadius:"0 0 16px 16px",
-                            border:`1px solid ${C.border}`,borderTop:"none",padding:"8px 16px 12px",
-                          }}>
+                          <div style={{background:C.surface2,borderRadius:"0 0 16px 16px",border:`1px solid ${C.border}`,borderTop:"none",padding:"8px 16px 12px"}}>
                             {(h.items||[]).map(item => {
-                              const checked = !!(dayItems[item.id]);
+                              const itemStatus = dayItems[item.id] ?? null;
+                              const isVal = itemStatus==='validated';
+                              const isInv = itemStatus==='invalidated';
                               return (
-                                <div key={item.id} onClick={()=>toggleItem(h.id,item.id)} style={{
-                                  display:"flex",alignItems:"center",gap:10,padding:"8px 0",
-                                  cursor:"pointer",borderBottom:`1px solid rgba(139,92,246,0.07)`,
-                                }}>
+                                <div key={item.id} onClick={()=>toggleItem(h.id,item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",cursor:"pointer",borderBottom:`1px solid rgba(139,92,246,0.07)`}}>
                                   <div style={{
                                     width:20,height:20,borderRadius:5,flexShrink:0,
-                                    background:checked?C.green:"transparent",
-                                    border:`2px solid ${checked?C.green:"rgba(139,92,246,0.35)"}`,
+                                    background:isVal?C.green:isInv?C.red:"transparent",
+                                    border:`2px solid ${isVal?C.green:isInv?C.red:"rgba(139,92,246,0.35)"}`,
                                     display:"flex",alignItems:"center",justifyContent:"center",
                                     color:"#fff",fontSize:13,fontWeight:700,transition:TR,
-                                  }}>{checked&&"✓"}</div>
-                                  <span style={{fontSize:14,color:checked?C.muted:C.text,textDecoration:checked?"line-through":"none"}}>{item.name}</span>
+                                  }}>{isVal?"✓":isInv?"✕":null}</div>
+                                  <span style={{fontSize:14,color:isVal?C.muted:isInv?C.red:C.text,textDecoration:isVal?"line-through":"none"}}>{item.name}</span>
                                 </div>
                               );
                             })}
