@@ -975,8 +975,8 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                       <div onClick={()=>setExpandedHabitId(isExpanded?null:h.id)} style={{
                         display:"flex",alignItems:"center",gap:14,padding:"14px 16px",
                         borderRadius:isExpanded?"16px 16px 0 0":16,
-                        background:isDone?"rgba(16,185,129,0.07)":C.surface2,
-                        border:`1px solid ${isDone?"rgba(16,185,129,0.25)":C.border}`,
+                        background:isDone?"rgba(16,185,129,0.07)":hasInvalid?"rgba(239,68,68,0.07)":C.surface2,
+                        border:`1px solid ${isDone?"rgba(16,185,129,0.25)":hasInvalid?"rgba(239,68,68,0.25)":C.border}`,
                         cursor:"pointer",transition:TR,minHeight:56,
                       }}>
                         <span style={{fontSize:22,flexShrink:0}}>{h.emoji}</span>
@@ -2489,8 +2489,8 @@ function HabitudesModule() {
                       <div key={h.id} style={{marginBottom:8}}>
                         <div style={{
                           display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:isExpanded?"16px 16px 0 0":16,
-                          background:isDone?"rgba(16,185,129,0.07)":C.surface2,
-                          border:`1px solid ${isDone?"rgba(16,185,129,0.25)":C.border}`,
+                          background:isDone?"rgba(16,185,129,0.07)":hasInvalid?"rgba(239,68,68,0.07)":C.surface2,
+                          border:`1px solid ${isDone?"rgba(16,185,129,0.25)":hasInvalid?"rgba(239,68,68,0.25)":C.border}`,
                           borderBottom:isExpanded?`1px solid ${C.border}`:undefined,
                           transition:TR, cursor:"pointer",
                         }} onClick={()=>setExpandedHabitId(isExpanded?null:h.id)}>
