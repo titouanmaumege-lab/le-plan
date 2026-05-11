@@ -67,7 +67,12 @@ function useElapsedTimer(startTime) {
   return elapsed;
 }
 const LS_SESSION_KEY = 'LE_PLAN_ACTIVE_SESSION';
-const WP_CATEGORIES = ["BUSINESS","MASTER","PRÉPA","STAGE","MÉMOIRE","FORMATIONS PP","PROJET PERSO","PERSO","CLIENT","OPTIMISATION","AUTRE"];
+const _perso0 = getLS("lp_personalization", {});
+const _D_DOMAINES = ["BUSINESS","MASTER","PRÉPA","STAGE","MÉMOIRE","FORMATIONS PP","PROJET PERSO","PERSO","CLIENT","OPTIMISATION","AUTRE"];
+const _D_WP_TYPES = ["DEEP","SHALLOW","COURS","GROUPE"];
+const _D_DJ_TYPES = ["Journée classique","Journée libre","Weekend","Voyage","Jour off","Jour spécial"];
+const _D_SPHERES  = { business:{label:"💸 Business",c:"#8b5cf6"}, master:{label:"📚 Master",c:"#3b82f6"}, sport:{label:"⚡ Sport",c:"#10b981"}, perso:{label:"👁 Perso",c:"#f59e0b"}, pro:{label:"🧑‍💻 Pro",c:"#ec4899"} };
+let WP_CATEGORIES = _perso0.domaines || _D_DOMAINES;
 function getISOWeekId(date = new Date()) {
   const d = new Date(date); d.setHours(0,0,0,0);
   d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
@@ -217,15 +222,15 @@ const LEVEL_PARENT = { annuel:"lt", trimestriel:"annuel", mensuel:"trimestriel" 
 const LEVEL_CHILD  = { lt:"annuel", annuel:"trimestriel", trimestriel:"mensuel" };
 const STATUS_OPTIONS_BASE = ["Dans les blocs","En cours","On-track","Off-track","At-risk","Terminé","Échoué"];
 
-const WP_TYPES     = ["DEEP","SHALLOW","COURS","GROUPE"];
-const WP_DOMAINES  = ["BUSINESS","MASTER","PRÉPA","STAGE","MÉMOIRE","FORMATIONS PP","PROJET PERSO","PERSO","CLIENT","OPTIMISATION","AUTRE"];
+let WP_TYPES     = _perso0.wpTypes  || _D_WP_TYPES;
+let WP_DOMAINES  = _perso0.domaines || _D_DOMAINES;
 const WP_EFFICIENCE= ["💡","💡💡","💡💡💡","💡💡💡💡","💡💡💡💡💡"];
 const WP_TYPE_C    = { DEEP: C.purple, SHALLOW: C.blue, COURS: C.amber, GROUPE: C.green };
 
 const DJ_ENERGY  = ["⚡","⚡⚡","⚡⚡⚡","⚡⚡⚡⚡","⚡⚡⚡⚡⚡"];
 const DJ_FOCUS   = ["❖","❖❖","❖❖❖","❖❖❖❖","❖❖❖❖❖"];
 const DJ_STRESS  = ["✶","✶✶","✶✶✶","✶✶✶✶","✶✶✶✶✶"];
-const DJ_TYPES   = ["Journée classique","Journée libre","Weekend","Voyage","Jour off","Jour spécial"];
+let DJ_TYPES   = _perso0.djTypes  || _D_DJ_TYPES;
 const DJ_EMPTY   = () => ({ morning:"",noon:"",evening:"",focus:"",stress:"",type:"Journée classique",remark:"",win:"",loss:"",ameliorer:"",customItems:[] });
 const djEntry    = raw => !raw ? DJ_EMPTY() : typeof raw === "string" ? { ...DJ_EMPTY(), reflexions: raw } : { ...DJ_EMPTY(), ...raw };
 const ITEM_COLORS = ["#10b981","#ef4444","#3b82f6","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
@@ -357,7 +362,7 @@ const BOTTOM_NAV = [
   { id: "objectifs", icon: "⭐", label: "Objectifs" },
 ];
 
-function BottomNav({ current, onNav, mobile }) {
+function BottomNav({ current, onNav, mobile, onPerso }) {
   return (
     <div style={{
       position: "fixed", bottom: 0, zIndex: 50,
@@ -705,6 +710,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
   const [editingName, setEditingName] = useState(false);
   const [editingMantra, setEditingMantra] = useState(false);
   const [animating, setAnimating]= useState(new Set());
+  const [expandedHabitId, setExpandedHabitId] = useState(null);
   const [wpForm, setWpForm]      = useState({ tache: "", temps: "", type: "DEEP", domaine: "BUSINESS", efficience: "💡💡💡" });
   const [todoText, setTodoText]  = useState("");
   const [objText, setObjText]    = useState("");
@@ -726,6 +732,22 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
       const logs = (h.logs||[]).filter(x=>x!==t);
       if (next === 'validated') logs.push(t);
       return {...h, dailyStatus:newDs, logs};
+    });
+    setHabits(updated); setLS("lp_habits", updated);
+  };
+
+  const toggleHabitItem = (habitId, itemId) => {
+    const updated = habits.map(h => {
+      if (h.id !== habitId) return h;
+      const is = { ...(h.itemStatus || {}) };
+      const dayItems = { ...(is[t] || {}) };
+      dayItems[itemId] = !dayItems[itemId];
+      is[t] = dayItems;
+      const allDone = (h.items||[]).length > 0 && (h.items||[]).every(it => dayItems[it.id]);
+      const ds = { ...(h.dailyStatus || {}) };
+      const logs = (h.logs||[]).filter(x=>x!==t);
+      if (allDone) { ds[t] = 'validated'; logs.push(t); } else delete ds[t];
+      return { ...h, itemStatus: is, dailyStatus: ds, logs };
     });
     setHabits(updated); setLS("lp_habits", updated);
   };
@@ -774,7 +796,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
 
   const QUICK_BTNS = [
     { key: "session", icon: "⏱️", label: "Session" },
-    { key: "journal", icon: "✦",  label: "Journal" },
+    { key: "journal", icon: "📓",  label: "Daily Paper" },
     { key: "todo",    icon: "+",  label: "Todo" },
   ];
 
@@ -937,6 +959,44 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
             ? <p style={{ fontSize: 13, color: C.faint }}>Aucune habitude. <span onClick={() => onNav("habitudes")} style={{ color: C.accent, cursor: "pointer" }}>→ Configurer</span></p>
             : habits.map(h => {
                 const status = (h.dailyStatus||{})[t] ?? null;
+                if (h.multiple) {
+                  const isDone = status === 'validated';
+                  const isExpanded = expandedHabitId === h.id;
+                  const dayItems = (h.itemStatus||{})[t] || {};
+                  const doneCount = (h.items||[]).filter(it=>dayItems[it.id]).length;
+                  const total = (h.items||[]).length;
+                  return (
+                    <div key={h.id} style={{marginBottom:8}}>
+                      <div onClick={()=>setExpandedHabitId(isExpanded?null:h.id)} style={{
+                        display:"flex",alignItems:"center",gap:14,padding:"14px 16px",
+                        borderRadius:isExpanded?"16px 16px 0 0":16,
+                        background:isDone?"rgba(16,185,129,0.07)":C.surface2,
+                        border:`1px solid ${isDone?"rgba(16,185,129,0.25)":C.border}`,
+                        cursor:"pointer",transition:TR,minHeight:56,
+                      }}>
+                        <span style={{fontSize:22,flexShrink:0}}>{h.emoji}</span>
+                        <span style={{flex:1,fontSize:15,fontWeight:500,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none",transition:TR}}>{h.name}</span>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{padding:"3px 9px",borderRadius:999,fontSize:12,fontWeight:700,background:isDone?"rgba(16,185,129,0.18)":"rgba(139,92,246,0.12)",color:isDone?C.green:C.accent,border:`1px solid ${isDone?"rgba(16,185,129,0.3)":C.border}`}}>{doneCount}/{total}</div>
+                          <span style={{fontSize:11,color:C.muted,transition:"transform 0.2s",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div style={{background:C.surface2,borderRadius:"0 0 16px 16px",border:`1px solid ${C.border}`,borderTop:"none",padding:"6px 16px 10px"}}>
+                          {(h.items||[]).map(item=>{
+                            const checked=!!(dayItems[item.id]);
+                            return (
+                              <div key={item.id} onClick={()=>toggleHabitItem(h.id,item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",cursor:"pointer",borderBottom:`1px solid rgba(139,92,246,0.07)`}}>
+                                <div style={{width:20,height:20,borderRadius:5,flexShrink:0,background:checked?C.green:"transparent",border:`2px solid ${checked?C.green:"rgba(139,92,246,0.35)"}`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,transition:TR}}>{checked&&"✓"}</div>
+                                <span style={{fontSize:14,color:checked?C.muted:C.text,textDecoration:checked?"line-through":"none"}}>{item.name}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
                 return <HabitChip key={h.id} habit={h} status={status} onToggle={() => toggleHabit(h.id)} animating={animating.has(h.id)} />;
               })
           }
@@ -1253,13 +1313,7 @@ function ObjectifsModule() {
 // ─────────────────────────────────────────────────────────────────────────────
 // TODO — GTD v2 + CALENDAR
 // ─────────────────────────────────────────────────────────────────────────────
-const SPHERES = {
-  business: { label: "💸 Business", c: "#8b5cf6" },
-  master:   { label: "📚 Master",   c: "#3b82f6" },
-  sport:    { label: "⚡ Sport",    c: "#10b981" },
-  perso:    { label: "👁 Perso",    c: "#f59e0b" },
-  pro:      { label: "🧑‍💻 Pro",    c: "#ec4899" },
-};
+let SPHERES = _perso0.spheres || _D_SPHERES;
 const MATRICES = {
   ui:   { label: "🔴 Urgent · Important",     short: "UI" },
   uni:  { label: "🟡 Urgent · Secondaire",    short: "U·S" },
@@ -2320,9 +2374,19 @@ function HabitudesModule() {
   const [animating, setAnimating] = useState(new Set());
   const [editHabitId, setEditHabitId] = useState(null);
   const [editHabitName, setEditHabitName] = useState("");
+  const [newMultiple, setNewMultiple] = useState(false);
+  const [newItemText, setNewItemText] = useState("");
+  const [newItems, setNewItems] = useState([]);
+  const [expandedHabitId, setExpandedHabitId] = useState(null);
+  const [editItemText, setEditItemText] = useState("");
 
   const save = d => { setHabits(d); setLS("lp_habits", d); };
-  const add  = () => { if(!newName.trim()) return; save([...habits,{id:uid(),name:newName.trim(),emoji:newEmoji||"⭐",logs:[],dailyStatus:{}}]); setNewName(""); setNewEmoji("⭐"); };
+  const add  = () => {
+    if(!newName.trim()) return;
+    save([...habits,{id:uid(),name:newName.trim(),emoji:newEmoji||"⭐",logs:[],dailyStatus:{},
+      multiple:newMultiple, items:newMultiple?[...newItems]:[], itemStatus:{}}]);
+    setNewName(""); setNewEmoji("⭐"); setNewMultiple(false); setNewItems([]); setNewItemText("");
+  };
   const toggle = (id, date) => {
     const d = date || todayStr();
     save(habits.map(h => {
@@ -2339,6 +2403,21 @@ function HabitudesModule() {
       const logs = (h.logs||[]).filter(x=>x!==d);
       if (next === 'validated') logs.push(d);
       return {...h, dailyStatus:newDs, logs};
+    }));
+  };
+  const toggleItem = (habitId, itemId, date) => {
+    const d = date || todayStr();
+    save(habits.map(h => {
+      if (h.id !== habitId) return h;
+      const is = { ...(h.itemStatus || {}) };
+      const dayItems = { ...(is[d] || {}) };
+      dayItems[itemId] = !dayItems[itemId];
+      is[d] = dayItems;
+      const allDone = (h.items||[]).length > 0 && (h.items||[]).every(it => dayItems[it.id]);
+      const ds = { ...(h.dailyStatus || {}) };
+      const logs = (h.logs||[]).filter(x=>x!==d);
+      if (allDone) { ds[d] = 'validated'; logs.push(d); } else delete ds[d];
+      return { ...h, itemStatus: is, dailyStatus: ds, logs };
     }));
   };
   const del    = id => save(habits.filter(h=>h.id!==id));
@@ -2389,6 +2468,62 @@ function HabitudesModule() {
                   const isDone=status==='validated';
                   const isInvalid=status==='invalidated';
                   const s=streak(h);
+                  const isExpanded = expandedHabitId === h.id;
+                  if (h.multiple) {
+                    const dayItems = (h.itemStatus||{})[t] || {};
+                    const doneCount = (h.items||[]).filter(it=>dayItems[it.id]).length;
+                    const total = (h.items||[]).length;
+                    return (
+                      <div key={h.id} style={{marginBottom:8}}>
+                        <div style={{
+                          display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:isExpanded?"16px 16px 0 0":16,
+                          background:isDone?"rgba(16,185,129,0.07)":C.surface2,
+                          border:`1px solid ${isDone?"rgba(16,185,129,0.25)":C.border}`,
+                          borderBottom:isExpanded?`1px solid ${C.border}`:undefined,
+                          transition:TR, cursor:"pointer",
+                        }} onClick={()=>setExpandedHabitId(isExpanded?null:h.id)}>
+                          <span style={{fontSize:24,flexShrink:0}}>{h.emoji}</span>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:15,fontWeight:500,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none"}}>{h.name}</div>
+                            {s>0&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>🔥 {s} jour{s>1?"s":""}</div>}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{
+                              padding:"4px 10px",borderRadius:999,fontSize:13,fontWeight:700,
+                              background:isDone?"rgba(16,185,129,0.18)":"rgba(139,92,246,0.12)",
+                              color:isDone?C.green:C.accent,border:`1px solid ${isDone?"rgba(16,185,129,0.3)":C.border}`,
+                            }}>{doneCount}/{total}</div>
+                            <span style={{fontSize:12,color:C.muted,transition:"transform 0.2s",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <div style={{
+                            background:C.surface2,borderRadius:"0 0 16px 16px",
+                            border:`1px solid ${C.border}`,borderTop:"none",padding:"8px 16px 12px",
+                          }}>
+                            {(h.items||[]).map(item => {
+                              const checked = !!(dayItems[item.id]);
+                              return (
+                                <div key={item.id} onClick={()=>toggleItem(h.id,item.id)} style={{
+                                  display:"flex",alignItems:"center",gap:10,padding:"8px 0",
+                                  cursor:"pointer",borderBottom:`1px solid rgba(139,92,246,0.07)`,
+                                }}>
+                                  <div style={{
+                                    width:20,height:20,borderRadius:5,flexShrink:0,
+                                    background:checked?C.green:"transparent",
+                                    border:`2px solid ${checked?C.green:"rgba(139,92,246,0.35)"}`,
+                                    display:"flex",alignItems:"center",justifyContent:"center",
+                                    color:"#fff",fontSize:13,fontWeight:700,transition:TR,
+                                  }}>{checked&&"✓"}</div>
+                                  <span style={{fontSize:14,color:checked?C.muted:C.text,textDecoration:checked?"line-through":"none"}}>{item.name}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
                   return (
                     <div key={h.id} style={{
                       display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:16,marginBottom:8,
@@ -2486,33 +2621,101 @@ function HabitudesModule() {
         {/* MANAGE */}
         {view==="manage" && (
           <div>
-            <div style={{display:"flex",gap:8,marginBottom:20}}>
+            <div style={{display:"flex",gap:8,marginBottom:8}}>
               <input value={newEmoji} onChange={e=>setNewEmoji(e.target.value)}
                 style={{width:54,textAlign:"center",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"10px 4px",borderRadius:12,fontSize:20,fontFamily:"inherit",outline:"none"}} />
-              <Input value={newName} onChange={setNewName} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Nom de l'habitude..." />
-              <Btn onClick={add} variant="accent" style={{whiteSpace:"nowrap"}}>+</Btn>
+              <Input value={newName} onChange={setNewName} onKeyDown={e=>e.key==="Enter"&&!newMultiple&&add()} placeholder="Nom de l'habitude..." />
+              {!newMultiple && <Btn onClick={add} variant="accent" style={{whiteSpace:"nowrap"}}>+</Btn>}
             </div>
-            {habits.length===0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucune habitude définie.</div>}
-            {habits.map(h => (
-              <div key={h.id} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:16,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`}}>
-                <EmojiInput value={h.emoji} onSave={v=>update(h.id,{emoji:v})} />
-                <div style={{flex:1,minWidth:0}}>
-                  {editHabitId===h.id ? (
-                    <input autoFocus value={editHabitName} onChange={e=>setEditHabitName(e.target.value)}
-                      onBlur={()=>{update(h.id,{name:editHabitName.trim()||h.name});setEditHabitId(null);}}
-                      onKeyDown={e=>{if(e.key==='Enter'){update(h.id,{name:editHabitName.trim()||h.name});setEditHabitId(null);}if(e.key==='Escape')setEditHabitId(null);}}
-                      style={{width:'100%',background:'transparent',border:'none',borderBottom:`1px solid ${C.accent}`,color:C.text,fontSize:14,fontWeight:500,fontFamily:'inherit',outline:'none',padding:'2px 0'}} />
-                  ) : (
-                    <div style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}} onClick={()=>{setEditHabitId(h.id);setEditHabitName(h.name);}}>
-                      <div style={{fontSize:14,fontWeight:500,color:C.text}}>{h.name}</div>
-                      <span style={{fontSize:12,color:C.faint,flexShrink:0}}>✏️</span>
-                    </div>
-                  )}
-                  <div style={{fontSize:11,color:C.muted,marginTop:3}}>{(h.logs||[]).length} entrées · {streak(h)} j. série</div>
+            <div onClick={()=>setNewMultiple(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,marginBottom:newMultiple?10:16,cursor:"pointer",userSelect:"none"}}>
+              <div style={{
+                width:18,height:18,borderRadius:4,flexShrink:0,
+                background:newMultiple?C.accent:"transparent",
+                border:`2px solid ${newMultiple?C.accent:"rgba(139,92,246,0.35)"}`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                color:"#fff",fontSize:12,fontWeight:700,transition:TR,
+              }}>{newMultiple&&"✓"}</div>
+              <span style={{fontSize:13,color:C.muted}}>Habitude multiple</span>
+            </div>
+            {newMultiple && (
+              <div style={{background:C.surface3,borderRadius:12,padding:"12px 14px",marginBottom:16,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:12,color:C.muted,marginBottom:8,fontWeight:600}}>Items de l'habitude</div>
+                {newItems.map(item=>(
+                  <div key={item.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid rgba(139,92,246,0.07)`}}>
+                    <span style={{fontSize:13,color:C.text,flex:1}}>· {item.name}</span>
+                    <button onClick={()=>setNewItems(newItems.filter(i=>i.id!==item.id))} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:14,padding:"0 4px"}}>×</button>
+                  </div>
+                ))}
+                <div style={{display:"flex",gap:8,marginTop:8}}>
+                  <Input value={newItemText} onChange={setNewItemText}
+                    onKeyDown={e=>{if(e.key==="Enter"&&newItemText.trim()){setNewItems(v=>[...v,{id:uid(),name:newItemText.trim()}]);setNewItemText("");}}}
+                    placeholder="Ajouter un item..." />
+                  <Btn onClick={()=>{if(newItemText.trim()){setNewItems(v=>[...v,{id:uid(),name:newItemText.trim()}]);setNewItemText("");}}} variant="ghost">+</Btn>
                 </div>
-                <Btn onClick={()=>del(h.id)} variant="ghost" style={{fontSize:12,color:C.red,borderColor:C.red+"40",padding:"6px 14px"}}>Suppr.</Btn>
+                <Btn onClick={add} variant="accent" style={{width:"100%",marginTop:10}}>Créer l'habitude</Btn>
               </div>
-            ))}
+            )}
+            {habits.length===0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucune habitude définie.</div>}
+            {habits.map(h => {
+              const isEditing = editHabitId === h.id;
+              return (
+              <div key={h.id} style={{marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:isEditing?"16px 16px 0 0":16,background:C.surface2,border:`1px solid ${C.border}`,borderBottom:isEditing?`1px solid ${C.border}`:undefined}}>
+                  <EmojiInput value={h.emoji} onSave={v=>update(h.id,{emoji:v})} />
+                  <div style={{flex:1,minWidth:0}}>
+                    {isEditing ? (
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <input autoFocus value={editHabitName} onChange={e=>setEditHabitName(e.target.value)}
+                          onBlur={()=>update(h.id,{name:editHabitName.trim()||h.name})}
+                          onKeyDown={e=>{if(e.key==='Enter')update(h.id,{name:editHabitName.trim()||h.name});if(e.key==='Escape'){update(h.id,{name:editHabitName.trim()||h.name});setEditHabitId(null);}}}
+                          style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${C.accent}`,color:C.text,fontSize:14,fontWeight:500,fontFamily:'inherit',outline:'none',padding:'2px 0'}} />
+                        <span onClick={()=>setEditHabitId(null)} style={{fontSize:12,color:C.accent,cursor:'pointer',flexShrink:0}}>✓</span>
+                      </div>
+                    ) : (
+                      <div style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}} onClick={()=>{setEditHabitId(h.id);setEditHabitName(h.name);setEditItemText("");}}>
+                        <div style={{fontSize:14,fontWeight:500,color:C.text}}>{h.name}</div>
+                        {h.multiple && <span style={{fontSize:10,padding:"1px 6px",borderRadius:999,background:C.purpleBg,color:C.accent,border:`1px solid ${C.border}`}}>multiple</span>}
+                        <span style={{fontSize:12,color:C.faint,flexShrink:0}}>✏️</span>
+                      </div>
+                    )}
+                    <div style={{fontSize:11,color:C.muted,marginTop:3}}>{(h.logs||[]).length} entrées · {streak(h)} j. série</div>
+                  </div>
+                  <Btn onClick={()=>del(h.id)} variant="ghost" style={{fontSize:12,color:C.red,borderColor:C.red+"40",padding:"6px 14px"}}>Suppr.</Btn>
+                </div>
+                {isEditing && (
+                  <div style={{background:C.surface3,borderRadius:"0 0 16px 16px",border:`1px solid ${C.border}`,borderTop:"none",padding:"12px 16px"}}>
+                    <div onClick={()=>update(h.id,{multiple:!h.multiple,items:h.multiple?[]:(h.items||[]),itemStatus:h.itemStatus||{}})} style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",userSelect:"none",marginBottom:h.multiple?10:0}}>
+                      <div style={{
+                        width:18,height:18,borderRadius:4,flexShrink:0,
+                        background:h.multiple?C.accent:"transparent",
+                        border:`2px solid ${h.multiple?C.accent:"rgba(139,92,246,0.35)"}`,
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                        color:"#fff",fontSize:12,fontWeight:700,transition:TR,
+                      }}>{h.multiple&&"✓"}</div>
+                      <span style={{fontSize:13,color:C.muted}}>Habitude multiple</span>
+                    </div>
+                    {h.multiple && (
+                      <div>
+                        <div style={{fontSize:12,color:C.muted,marginBottom:6,fontWeight:600}}>Items</div>
+                        {(h.items||[]).map(item=>(
+                          <div key={item.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:`1px solid rgba(139,92,246,0.07)`}}>
+                            <span style={{fontSize:13,color:C.text,flex:1}}>· {item.name}</span>
+                            <button onClick={()=>update(h.id,{items:(h.items||[]).filter(i=>i.id!==item.id)})} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:14,padding:"0 4px"}}>×</button>
+                          </div>
+                        ))}
+                        <div style={{display:"flex",gap:8,marginTop:8}}>
+                          <Input value={editItemText} onChange={setEditItemText}
+                            onKeyDown={e=>{if(e.key==="Enter"&&editItemText.trim()){update(h.id,{items:[...(h.items||[]),{id:uid(),name:editItemText.trim()}]});setEditItemText("");}}}
+                            placeholder="Ajouter un item..." />
+                          <Btn onClick={()=>{if(editItemText.trim()){update(h.id,{items:[...(h.items||[]),{id:uid(),name:editItemText.trim()}]});setEditItemText("");}}} variant="ghost">+</Btn>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -3662,7 +3865,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   );
 }
 
-function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyReview }) {
+function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyReview, onPerso }) {
   const { todos: allTodos, restoreTodo } = useTodos();
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
   const [daily, setDaily]   = useState(() => getLS("lp_daily", {}));
@@ -3783,7 +3986,7 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyRe
   const sortedWRQ = Object.keys(wrByQ).sort((a,b)=>b.localeCompare(a));
 
   return (
-    <div>
+    <div style={{minHeight:"100%",display:"flex",flexDirection:"column"}}>
       <PageHeader title="📋 Logs" onBack={onBack} />
 
       {/* Weekly Review button */}
@@ -3936,6 +4139,127 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyRe
         </div>
       </div>
 
+      {/* Personnalisation — always at bottom */}
+      {onPerso && (
+        <div style={{marginTop:"auto",padding:"12px 16px",background:C.bg,borderTop:`1px solid ${C.border}`}}>
+          <button onClick={onPerso} style={{
+            width:"100%",padding:"12px 20px",borderRadius:14,
+            background:C.surface2,color:C.muted,fontSize:13,fontWeight:600,
+            fontFamily:"inherit",border:`1px solid ${C.border}`,cursor:"pointer",
+            display:"flex",alignItems:"center",gap:10,
+          }}>
+            <span style={{fontSize:16}}>⚙️</span>
+            Personnalisation
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSONALISATION MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+function PersonalisationModal({ onClose, onSave }) {
+  const TABS = [
+    { id:"domaines",  label:"Domaines" },
+    { id:"wpTypes",   label:"Types session" },
+    { id:"djTypes",   label:"Journées" },
+    { id:"spheres",   label:"Sphères" },
+  ];
+  const [tab, setTab] = useState("domaines");
+  const [domaines, setDomaines] = useState([...WP_CATEGORIES]);
+  const [wpTypes,  setWpTypes]  = useState([...WP_TYPES]);
+  const [djTypes,  setDjTypes]  = useState([...DJ_TYPES]);
+  const [sphereList, setSphereList] = useState(
+    Object.entries(SPHERES).map(([k,v])=>({key:k,label:v.label,c:v.c}))
+  );
+  const [newStr, setNewStr]             = useState("");
+  const [newSphLabel, setNewSphLabel]   = useState("");
+  const [newSphColor, setNewSphColor]   = useState("#8b5cf6");
+
+  const getList = () => tab==="domaines"?domaines:tab==="wpTypes"?wpTypes:djTypes;
+  const setList = fn => { if(tab==="domaines")setDomaines(fn); else if(tab==="wpTypes")setWpTypes(fn); else setDjTypes(fn); };
+
+  const addItem = () => { if(!newStr.trim())return; setList(l=>[...l,newStr.trim()]); setNewStr(""); };
+  const removeItem = i => setList(l=>l.filter((_,j)=>j!==i));
+  const moveItem = (i,d) => setList(l=>{ const n=[...l]; const t=i+d; if(t<0||t>=n.length)return l; [n[i],n[t]]=[n[t],n[i]]; return n; });
+
+  const addSphere = () => {
+    if(!newSphLabel.trim())return;
+    const base = newSphLabel.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"_").replace(/_+/g,"_").slice(0,20);
+    const key = sphereList.find(s=>s.key===base) ? base+"_"+Date.now().toString(36) : base;
+    setSphereList(l=>[...l,{key,label:newSphLabel.trim(),c:newSphColor}]);
+    setNewSphLabel(""); setNewSphColor("#8b5cf6");
+  };
+
+  const save = () => {
+    const spheresObj = Object.fromEntries(sphereList.map(s=>[s.key,{label:s.label,c:s.c}]));
+    onSave({ domaines, wpTypes, djTypes, spheres: spheresObj });
+  };
+
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:20,width:"100%",maxWidth:480,maxHeight:"85vh",display:"flex",flexDirection:"column",border:`1px solid ${C.border}`,boxShadow:"0 24px 64px rgba(0,0,0,0.5)"}}>
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"18px 20px 0"}}>
+          <div style={{fontSize:17,fontWeight:700,color:C.text}}>⚙️ Personnalisation</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:C.muted,fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        {/* Tabs */}
+        <div style={{display:"flex",gap:6,padding:"14px 20px 0",overflowX:"auto"}}>
+          {TABS.map(t=>(
+            <button key={t.id} onClick={()=>{setTab(t.id);setNewStr("");}} style={{
+              flexShrink:0,padding:"6px 14px",borderRadius:999,border:`1px solid ${tab===t.id?C.accent:C.border}`,
+              background:tab===t.id?C.accentBg:C.surface2,color:tab===t.id?C.accent:C.muted,
+              cursor:"pointer",fontSize:12,fontFamily:"inherit",fontWeight:tab===t.id?600:400,
+            }}>{t.label}</button>
+          ))}
+        </div>
+        {/* Content */}
+        <div style={{flex:1,overflowY:"auto",padding:"16px 20px"}}>
+          {tab!=="spheres" ? (
+            <div>
+              {getList().map((item,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:`1px solid rgba(139,92,246,0.07)`}}>
+                  <span style={{flex:1,fontSize:14,color:C.text}}>{item}</span>
+                  <button onClick={()=>moveItem(i,-1)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",opacity:i===0?0.3:1,fontSize:14}}>↑</button>
+                  <button onClick={()=>moveItem(i,1)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",opacity:i===getList().length-1?0.3:1,fontSize:14}}>↓</button>
+                  <button onClick={()=>removeItem(i)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:"0 2px"}}>×</button>
+                </div>
+              ))}
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <Input value={newStr} onChange={setNewStr} onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="Ajouter..." />
+                <Btn onClick={addItem} variant="ghost">+</Btn>
+              </div>
+            </div>
+          ) : (
+            <div>
+              {sphereList.map((s,i)=>(
+                <div key={s.key} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:`1px solid rgba(139,92,246,0.07)`}}>
+                  <input type="color" value={s.c} onChange={e=>setSphereList(l=>l.map((x,j)=>j===i?{...x,c:e.target.value}:x))}
+                    style={{width:28,height:28,border:"none",borderRadius:6,cursor:"pointer",padding:0,background:"none",flexShrink:0}} />
+                  <input value={s.label} onChange={e=>setSphereList(l=>l.map((x,j)=>j===i?{...x,label:e.target.value}:x))}
+                    style={{flex:1,background:"transparent",border:"none",borderBottom:`1px solid ${C.border}`,color:C.text,fontSize:14,fontFamily:"inherit",outline:"none",padding:"2px 0"}} />
+                  <button onClick={()=>setSphereList(l=>l.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:"0 2px"}}>×</button>
+                </div>
+              ))}
+              <div style={{display:"flex",gap:8,marginTop:10,alignItems:"center"}}>
+                <input type="color" value={newSphColor} onChange={e=>setNewSphColor(e.target.value)}
+                  style={{width:34,height:34,border:"none",borderRadius:8,cursor:"pointer",padding:0,background:"none",flexShrink:0}} />
+                <Input value={newSphLabel} onChange={setNewSphLabel} onKeyDown={e=>e.key==="Enter"&&addSphere()} placeholder="Nouvelle sphère (ex: 💸 Finance)..." />
+                <Btn onClick={addSphere} variant="ghost">+</Btn>
+              </div>
+              <div style={{fontSize:11,color:C.muted,marginTop:8}}>La clé est auto-générée depuis le nom.</div>
+            </div>
+          )}
+        </div>
+        {/* Footer */}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",padding:"12px 20px 18px",borderTop:`1px solid ${C.border}`}}>
+          <Btn onClick={onClose} variant="ghost">Annuler</Btn>
+          <Btn onClick={save} variant="accent">Enregistrer</Btn>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3955,8 +4279,21 @@ export default function App({ session, signOut }) {
   const [activeSession, setActiveSession] = useState(() => {
     try { const raw=localStorage.getItem(LS_SESSION_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
   });
+  const [showPerso, setShowPerso] = useState(false);
+  const [persoKey, setPersoKey]   = useState(0);
   const touchRef = useRef(null);
   const mobile = viewMode === "mobile" && window.innerWidth >= 600;
+
+  const handleSavePerso = (p) => {
+    setLS("lp_personalization", p);
+    WP_CATEGORIES = p.domaines;
+    WP_DOMAINES   = p.domaines;
+    WP_TYPES      = p.wpTypes;
+    DJ_TYPES      = p.djTypes;
+    SPHERES       = p.spheres;
+    setPersoKey(k => k + 1);
+    setShowPerso(false);
+  };
 
   useEffect(() => {
     _userId = session?.user?.id ?? null;
@@ -4001,7 +4338,7 @@ export default function App({ session, signOut }) {
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
-      <div key={module} className="fade-in">
+      <div key={`${module}-${persoKey}`} className="fade-in">
         {module === "dashboard" && <Dashboard onNav={setModule} onOpenLogs={()=>setLogsOpen(true)} onRequestSession={()=>setShowSessionChoice(true)} />}
         {module === "objectifs" && <ObjectifsModule />}
         {module === "habitudes" && <HabitudesModule />}
@@ -4010,7 +4347,8 @@ export default function App({ session, signOut }) {
         {module === "todo"      && <TodoModule />}
       </div>
       <ActiveSessionWidget session={activeSession} onStop={handleSessionStop} />
-      <BottomNav current={module} onNav={setModule} mobile={mobile} />
+      <BottomNav current={module} onNav={setModule} mobile={mobile} onPerso={()=>setShowPerso(true)} />
+      {showPerso && <PersonalisationModal onClose={()=>setShowPerso(false)} onSave={handleSavePerso} />}
       {/* Logs slide-over panel */}
       <div style={{ position:"fixed", inset:0, zIndex:200, pointerEvents:logsOpen?"all":"none" }}>
         <div onClick={()=>setLogsOpen(false)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.5)", opacity:logsOpen?1:0, transition:"opacity 0.25s ease" }} />
@@ -4026,7 +4364,7 @@ export default function App({ session, signOut }) {
           }}
           style={{ position:"absolute", top:0, right:0, bottom:0, width:"92%", maxWidth:500, background:C.bg, transform:logsOpen?"translateX(0)":"translateX(100%)", transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)", overflowY:"auto" }}
         >
-          <LogsModule onBack={()=>setLogsOpen(false)} viewMode={viewMode} onSetViewMode={setView} onSignOut={signOut} onOpenWeeklyReview={setWrModal} />
+          <LogsModule onBack={()=>setLogsOpen(false)} viewMode={viewMode} onSetViewMode={setView} onSignOut={signOut} onOpenWeeklyReview={setWrModal} onPerso={()=>{setLogsOpen(false);setShowPerso(true);}} />
         </div>
       </div>
       {/* Weekly Review modal — rendered at root so it covers everything */}
