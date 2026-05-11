@@ -744,10 +744,14 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
       dayItems[itemId] = cycleHabitStatus(dayItems[itemId] ?? null);
       if (dayItems[itemId] === null) delete dayItems[itemId];
       is[t] = dayItems;
-      const allDone = (h.items||[]).length > 0 && (h.items||[]).every(it => dayItems[it.id] === 'validated');
+      const items = h.items || [];
+      const allDone = items.length > 0 && items.every(it => dayItems[it.id] === 'validated');
+      const anyInvalid = items.some(it => dayItems[it.id] === 'invalidated');
       const ds = { ...(h.dailyStatus || {}) };
       const logs = (h.logs||[]).filter(x=>x!==t);
-      if (allDone) { ds[t] = 'validated'; logs.push(t); } else delete ds[t];
+      if (allDone) { ds[t] = 'validated'; logs.push(t); }
+      else if (anyInvalid) { ds[t] = 'invalidated'; }
+      else delete ds[t];
       return { ...h, itemStatus: is, dailyStatus: ds, logs };
     });
     setHabits(updated); setLS("lp_habits", updated);
@@ -2421,10 +2425,14 @@ function HabitudesModule() {
       dayItems[itemId] = cycleHabitStatus(dayItems[itemId] ?? null);
       if (dayItems[itemId] === null) delete dayItems[itemId];
       is[d] = dayItems;
-      const allDone = (h.items||[]).length > 0 && (h.items||[]).every(it => dayItems[it.id] === 'validated');
+      const items = h.items || [];
+      const allDone = items.length > 0 && items.every(it => dayItems[it.id] === 'validated');
+      const anyInvalid = items.some(it => dayItems[it.id] === 'invalidated');
       const ds = { ...(h.dailyStatus || {}) };
       const logs = (h.logs||[]).filter(x=>x!==d);
-      if (allDone) { ds[d] = 'validated'; logs.push(d); } else delete ds[d];
+      if (allDone) { ds[d] = 'validated'; logs.push(d); }
+      else if (anyInvalid) { ds[d] = 'invalidated'; }
+      else delete ds[d];
       return { ...h, itemStatus: is, dailyStatus: ds, logs };
     }));
   };
