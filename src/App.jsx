@@ -2757,8 +2757,37 @@ function ActiveSessionWidget({ session, onStop }) {
         <span style={{fontSize:20,fontWeight:700,color:'#8b5cf6',fontVariantNumeric:'tabular-nums',letterSpacing:'0.02em'}}>
           {formatElapsed(elapsed)}
         </span>
-        <button onClick={onStop} style={{background:'#ef4444',color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',fontWeight:700,fontSize:13,cursor:'pointer',minHeight:36}}>
+        <button onClick={()=>onStop(elapsed)} style={{background:'#ef4444',color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',fontWeight:700,fontSize:13,cursor:'pointer',minHeight:36}}>
           ⏹ Stop
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LiveStopModal({ session, elapsed, onConfirm, onCancel }) {
+  const [type, setType] = useState('DEEP');
+  const [efficience, setEfficience] = useState('💡💡💡');
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
+      <div onClick={onCancel} style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)'}} />
+      <div className="slide-up" style={{position:'relative',width:'min(480px,100%)',background:'#12112a',borderRadius:24,border:'1px solid rgba(139,92,246,0.25)',padding:'24px'}}>
+        <div style={{fontSize:14,fontWeight:700,color:'#f1f0ff',textAlign:'center',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em'}}>⏹ Fin de session</div>
+        <div style={{fontSize:13,color:'#9391b5',textAlign:'center',marginBottom:20}}>{session?.name} · {formatElapsed(elapsed)}</div>
+        <div style={{fontSize:10,color:'#9391b5',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Type</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
+          {WP_TYPES.map(tp=>(
+            <button key={tp} onClick={()=>setType(tp)} style={{padding:'7px 15px',borderRadius:999,fontSize:12,border:`1px solid ${type===tp?WP_TYPE_C[tp]:'rgba(139,92,246,0.2)'}`,background:type===tp?WP_TYPE_C[tp]+'22':'transparent',color:type===tp?WP_TYPE_C[tp]:'#9391b5',fontFamily:'inherit',cursor:'pointer',fontWeight:type===tp?600:400}}>{tp}</button>
+          ))}
+        </div>
+        <div style={{fontSize:10,color:'#9391b5',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.08em'}}>Efficience</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:20}}>
+          {WP_EFFICIENCE.map(e=>(
+            <button key={e} onClick={()=>setEfficience(e)} style={{padding:'7px 12px',borderRadius:999,fontSize:15,border:`1px solid ${efficience===e?'#8b5cf6':'rgba(139,92,246,0.2)'}`,background:efficience===e?'rgba(139,92,246,0.15)':'transparent',fontFamily:'inherit',cursor:'pointer'}}>{e}</button>
+          ))}
+        </div>
+        <button onClick={()=>onConfirm({type,efficience})} style={{width:'100%',background:'linear-gradient(135deg,#8b5cf6,#6366f1)',color:'#fff',border:'none',borderRadius:14,padding:'14px',fontSize:14,fontWeight:700,cursor:'pointer'}}>
+          Enregistrer la session
         </button>
       </div>
     </div>
@@ -2856,9 +2885,15 @@ function SessionLogForm({ onClose }) {
           </div>
         </div>
         <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Type</div>
-        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
           {WP_TYPES.map(tp=>(
             <button key={tp} onClick={()=>set({type:tp})} style={{padding:'6px 13px',borderRadius:999,fontSize:12,border:`1px solid ${form.type===tp?WP_TYPE_C[tp]:C.border}`,background:form.type===tp?WP_TYPE_C[tp]+'20':'transparent',color:form.type===tp?WP_TYPE_C[tp]:C.muted,fontFamily:'inherit',cursor:'pointer'}}>{tp}</button>
+          ))}
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Efficience</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
+          {WP_EFFICIENCE.map(e=>(
+            <button key={e} onClick={()=>set({efficience:e})} style={{padding:'6px 12px',borderRadius:999,fontSize:14,border:`1px solid ${form.efficience===e?C.accent:C.border}`,background:form.efficience===e?C.accentBg:'transparent',fontFamily:'inherit',cursor:'pointer'}}>{e}</button>
           ))}
         </div>
         <button onClick={save} disabled={!form.tache.trim()||!form.temps}
@@ -2883,7 +2918,8 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
     save([...sessions,{id:uid(),tache:form.tache.trim(),date:todayStr(),temps:parseInt(form.temps),type:form.type,domaine:form.domaine,efficience:form.efficience}]);
     setForm(f=>({...f,tache:"",temps:""})); setShowForm(false);
   };
-  const del = id => save(sessions.filter(s=>s.id!==id));
+  const del  = id => save(sessions.filter(s=>s.id!==id));
+  const edit = (id, patch) => save(sessions.map(s=>s.id===id?{...s,...patch}:s));
   const t=todayStr();
   const todaySessions=sessions.filter(s=>s.date===t);
   const totalToday=todaySessions.reduce((a,s)=>a+s.temps,0);
@@ -2950,7 +2986,7 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
 
         {view==="today" && (todaySessions.length===0
           ? <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucune session aujourd'hui.</div>
-          : todaySessions.map(s=><WPCard key={s.id} s={s} onDelete={del} />)
+          : todaySessions.map(s=><WPCard key={s.id} s={s} onDelete={del} onEdit={edit} />)
         )}
 
         {view==="history" && (sortedDates.length===0
@@ -2963,7 +2999,7 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
                     <span style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>{fmtDate(date)}</span>
                     <span style={{fontSize:13,color:C.accent,fontWeight:700}}>{fmtMin(dayTotal)}</span>
                   </div>
-                  {ds.map(s=><WPCard key={s.id} s={s} onDelete={del} />)}
+                  {ds.map(s=><WPCard key={s.id} s={s} onDelete={del} onEdit={edit} />)}
                 </div>
               );
             })
@@ -2993,8 +3029,63 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
   );
 }
 
-function WPCard({ s, onDelete }) {
+function WPCard({ s, onDelete, onEdit }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({});
   const tc = WP_TYPE_C[s.type] || C.muted;
+
+  const startEdit = () => {
+    setDraft({ tache: s.tache, temps: s.temps, type: s.type, domaine: s.domaine, efficience: s.efficience });
+    setEditing(true);
+  };
+  const saveEdit = () => {
+    if (!draft.tache.trim() || !draft.temps) return;
+    onEdit(s.id, { ...draft, temps: parseInt(draft.temps) });
+    setEditing(false);
+  };
+  const cancel = () => setEditing(false);
+
+  if (editing) {
+    const dtc = WP_TYPE_C[draft.type] || C.muted;
+    return (
+      <div className="slide-up" style={{borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.borderMid}`,borderLeft:`3px solid ${dtc}`,padding:"12px 16px"}}>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <input
+            autoFocus
+            value={draft.tache}
+            onChange={e=>setDraft(d=>({...d,tache:e.target.value}))}
+            placeholder="Tâche..."
+            style={{flex:1,background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:"8px 10px",borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none"}}
+          />
+          <input
+            type="number" min="1"
+            value={draft.temps}
+            onChange={e=>setDraft(d=>({...d,temps:e.target.value}))}
+            placeholder="min"
+            style={{width:64,background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:"8px 8px",borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none"}}
+          />
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+          {WP_TYPES.map(tp=>(
+            <button key={tp} onClick={()=>setDraft(d=>({...d,type:tp}))} style={{
+              padding:"5px 12px",borderRadius:999,fontSize:12,border:`1px solid ${draft.type===tp?WP_TYPE_C[tp]:C.border}`,
+              background:draft.type===tp?WP_TYPE_C[tp]+"22":"transparent",color:draft.type===tp?WP_TYPE_C[tp]:C.muted,
+              fontFamily:"inherit",fontWeight:draft.type===tp?600:400,cursor:"pointer",
+            }}>{tp}</button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:8,marginBottom:10}}>
+          <Select value={draft.domaine} options={WP_DOMAINES} onChange={v=>setDraft(d=>({...d,domaine:v}))} style={{flex:1}} />
+          <Select value={draft.efficience} options={WP_EFFICIENCE} onChange={v=>setDraft(d=>({...d,efficience:v}))} />
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={saveEdit} style={{flex:1,background:C.accent,color:"#fff",border:"none",padding:"8px 0",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Enregistrer</button>
+          <button onClick={cancel} style={{flex:1,background:C.surface3,color:C.muted,border:`1px solid ${C.border}`,padding:"8px 0",borderRadius:10,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Annuler</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${tc}`}}>
       <div style={{flex:1}}>
@@ -3007,7 +3098,10 @@ function WPCard({ s, onDelete }) {
       </div>
       <div style={{textAlign:"right",flexShrink:0}}>
         <div style={{fontSize:16,fontWeight:700,color:C.accent}}>{fmtMin(s.temps)}</div>
-        <span onClick={()=>onDelete(s.id)} style={{fontSize:12,color:C.muted,cursor:"pointer"}}>✕</span>
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:2}}>
+          <span onClick={startEdit} style={{fontSize:12,color:C.muted,cursor:"pointer"}}>✎</span>
+          <span onClick={()=>onDelete(s.id)} style={{fontSize:12,color:C.muted,cursor:"pointer"}}>✕</span>
+        </div>
       </div>
     </div>
   );
@@ -4291,6 +4385,7 @@ export default function App({ session, signOut }) {
   const [activeSession, setActiveSession] = useState(() => {
     try { const raw=localStorage.getItem(LS_SESSION_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
   });
+  const [stopModal, setStopModal] = useState(null); // { elapsed }
   const [showPerso, setShowPerso] = useState(false);
   const [persoKey, setPersoKey]   = useState(0);
   const touchRef = useRef(null);
@@ -4316,18 +4411,22 @@ export default function App({ session, signOut }) {
     localStorage.setItem(LS_SESSION_KEY, JSON.stringify(s));
     setActiveSession(s);
   };
-  const handleSessionStop = useCallback(() => {
+  const handleSessionStop = useCallback((elapsed) => {
+    setStopModal({ elapsed: elapsed ?? 0 });
+  }, []);
+  const handleConfirmStop = useCallback(({ type, efficience }) => {
     const raw = localStorage.getItem(LS_SESSION_KEY);
     if (raw) {
       try {
         const { name, category, startTime } = JSON.parse(raw);
         const durationMinutes = Math.round((Date.now() - startTime) / 60000) || 1;
         const sessions = getLS("lp_workperf", []);
-        setLS("lp_workperf", [...sessions, {id:uid(),tache:name,date:todayStr(),temps:durationMinutes,type:'DEEP',domaine:category,efficience:'💡💡💡',startTime:new Date(startTime).toISOString(),endTime:new Date().toISOString()}]);
+        setLS("lp_workperf", [...sessions, {id:uid(),tache:name,date:todayStr(),temps:durationMinutes,type,domaine:category,efficience,startTime:new Date(startTime).toISOString(),endTime:new Date().toISOString()}]);
       } catch {}
     }
     localStorage.removeItem(LS_SESSION_KEY);
     setActiveSession(null);
+    setStopModal(null);
   }, []);
 
   const setView = v => { setViewMode(v); setLS("lp_view_mode", v); };
@@ -4359,6 +4458,7 @@ export default function App({ session, signOut }) {
         {module === "todo"      && <TodoModule />}
       </div>
       <ActiveSessionWidget session={activeSession} onStop={handleSessionStop} />
+      {stopModal && <LiveStopModal session={activeSession} elapsed={stopModal.elapsed} onConfirm={handleConfirmStop} onCancel={()=>setStopModal(null)} />}
       <BottomNav current={module} onNav={setModule} mobile={mobile} onPerso={()=>setShowPerso(true)} />
       {showPerso && <PersonalisationModal onClose={()=>setShowPerso(false)} onSave={handleSavePerso} />}
       {/* Logs slide-over panel */}
