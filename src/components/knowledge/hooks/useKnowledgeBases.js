@@ -21,10 +21,11 @@ export function useKnowledgeBases(userId) {
 
   const createBase = async ({ name, emoji = "📚", color = "#3b82f6", parent_id = null }) => {
     const siblings = bases.filter(b => b.parent_id === parent_id);
-    const { data } = await supabase.from("knowledge_bases").insert({
+    const { data, error } = await supabase.from("knowledge_bases").insert({
       owner_id: userId, name, emoji, color,
       parent_id, position: siblings.length,
     }).select().single();
+    if (error) { console.error("createBase error:", error); return null; }
     if (data) setBases(b => [...b, data]);
     return data;
   };
