@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { syncToSupabase } from "./supabase";
+import BaseModule from "./components/knowledge/BaseModule";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILS
@@ -64,6 +65,21 @@ function useElapsedTimer(startTime) {
     const id = setInterval(() => setElapsed(Date.now() - startTime), 1000);
     return () => clearInterval(id);
   }, [startTime]);
+  return elapsed;
+}
+function useElapsedWithPause(session) {
+  const [elapsed, setElapsed] = useState(0);
+  const startTime = session?.startTime;
+  const pausedAt  = session?.pausedAt ?? null;
+  const totalPausedMs = session?.totalPausedMs ?? 0;
+  useEffect(() => {
+    if (!startTime) { setElapsed(0); return; }
+    const calc = () => Math.max(0, (pausedAt || Date.now()) - startTime - totalPausedMs);
+    setElapsed(calc());
+    if (pausedAt) return;
+    const id = setInterval(() => setElapsed(calc()), 1000);
+    return () => clearInterval(id);
+  }, [startTime, pausedAt, totalPausedMs]);
   return elapsed;
 }
 const LS_SESSION_KEY = 'LE_PLAN_ACTIVE_SESSION';
@@ -356,10 +372,11 @@ function PageHeader({ title, onBack, action }) {
 const BOTTOM_NAV = [
   { id: "dashboard", icon: "🏠", label: "Home" },
   { id: "todo",      icon: "✅", label: "Todo" },
-  { id: "habitudes", icon: "🔥", label: "Habitudes" },
-  { id: "workperf",  icon: "⏱️️", label: "WorkPerf" },
+  { id: "habitudes", icon: "🔥", label: "Habits" },
+  { id: "workperf",  icon: "⏱️️", label: "Work" },
   { id: "daily",     icon: "📓", label: "Daily" },
-  { id: "objectifs", icon: "⭐", label: "Objectifs" },
+  { id: "objectifs", icon: "⭐", label: "Goals" },
+  { id: "base",      icon: "📚", label: "Base" },
 ];
 
 function BottomNav({ current, onNav, mobile, onPerso }) {
@@ -388,11 +405,11 @@ function BottomNav({ current, onNav, mobile, onPerso }) {
                 boxShadow: GLOW_SM,
               }} />
             )}
-            <span style={{ fontSize: 18, lineHeight: 1, marginTop: 10 }}>{n.icon}</span>
+            <span style={{ fontSize: 16, lineHeight: 1, marginTop: 10 }}>{n.icon}</span>
             <span style={{
-              fontSize: 10, fontWeight: active ? 600 : 400,
+              fontSize: 9, fontWeight: active ? 600 : 400,
               color: active ? C.accent : C.faint,
-              letterSpacing: "0.02em",
+              letterSpacing: "0.01em",
             }}>{n.label}</span>
           </div>
         );
@@ -2738,27 +2755,37 @@ function HabitudesModule() {
 // ─────────────────────────────────────────────────────────────────────────────
 // WORKPERF — Live session widget + modals
 // ─────────────────────────────────────────────────────────────────────────────
-function ActiveSessionWidget({ session, onStop }) {
-  const elapsed = useElapsedTimer(session?.startTime ?? null);
+function ActiveSessionWidget({ session, onStop, onPause, onResume }) {
+  const elapsed = useElapsedWithPause(session);
   if (!session) return null;
+  const paused = !!session.pausedAt;
   return (
     <div style={{
       position:'fixed', bottom:64, left:0, right:0, zIndex:100,
-      background:'rgba(26,24,48,0.97)', borderTop:'1px solid rgba(139,92,246,0.4)',
-      borderBottom:'1px solid rgba(139,92,246,0.15)', padding:'10px 16px',
+      background: paused ? 'rgba(30,28,20,0.97)' : 'rgba(26,24,48,0.97)',
+      borderTop: `1px solid ${paused ? 'rgba(245,158,11,0.5)' : 'rgba(139,92,246,0.4)'}`,
+      borderBottom:'1px solid rgba(0,0,0,0.1)', padding:'10px 16px',
       display:'flex', alignItems:'center', justifyContent:'space-between',
       backdropFilter:'blur(12px)',
     }}>
       <div>
-        <div style={{fontSize:11,color:'#9391b5',textTransform:'uppercase',letterSpacing:'0.08em'}}>⏱ EN COURS — {session.category}</div>
+        <div style={{fontSize:11,color: paused ? '#f59e0b' : '#9391b5',textTransform:'uppercase',letterSpacing:'0.08em'}}>
+          {paused ? '⏸ EN PAUSE' : '⏱ EN COURS'} — {session.category}
+        </div>
         <div style={{fontWeight:700,color:'#f1f0ff',fontSize:14}}>{session.name}</div>
       </div>
-      <div style={{display:'flex',alignItems:'center',gap:12}}>
-        <span style={{fontSize:20,fontWeight:700,color:'#8b5cf6',fontVariantNumeric:'tabular-nums',letterSpacing:'0.02em'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <span style={{fontSize:18,fontWeight:700,color: paused ? '#f59e0b' : '#8b5cf6',fontVariantNumeric:'tabular-nums',letterSpacing:'0.02em'}}>
           {formatElapsed(elapsed)}
         </span>
-        <button onClick={()=>onStop(elapsed)} style={{background:'#ef4444',color:'#fff',border:'none',borderRadius:8,padding:'6px 14px',fontWeight:700,fontSize:13,cursor:'pointer',minHeight:36}}>
-          ⏹ Stop
+        <button
+          onClick={paused ? onResume : onPause}
+          style={{background: paused ? '#f59e0b' : 'rgba(139,92,246,0.2)',color: paused ? '#fff' : '#a78bfa',border:`1px solid ${paused?'#f59e0b':'rgba(139,92,246,0.4)'}`,borderRadius:8,padding:'6px 12px',fontWeight:700,fontSize:12,cursor:'pointer',minHeight:36}}
+        >
+          {paused ? '▶ Reprendre' : '⏸ Pause'}
+        </button>
+        <button onClick={()=>onStop(elapsed)} style={{background:'#ef4444',color:'#fff',border:'none',borderRadius:8,padding:'6px 12px',fontWeight:700,fontSize:12,cursor:'pointer',minHeight:36}}>
+          ✓ Fini
         </button>
       </div>
     </div>
@@ -2905,6 +2932,68 @@ function SessionLogForm({ onClose }) {
   );
 }
 
+function WPReview({ sessions, onDelete, onEdit }) {
+  const [expanded, setExpanded] = useState({});
+  const toggle = d => setExpanded(e => ({...e,[d]:!e[d]}));
+
+  const total = sessions.reduce((a,s)=>a+s.temps,0);
+  const byType = sessions.reduce((acc,s)=>{ acc[s.type]=(acc[s.type]||0)+s.temps; return acc; },{});
+  const byDomaine = sessions.reduce((acc,s)=>{ acc[s.domaine]=(acc[s.domaine]||0)+s.temps; return acc; },{});
+  const domaines = Object.keys(byDomaine).sort((a,b)=>byDomaine[b]-byDomaine[a]);
+
+  if (!sessions.length) return <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucune session sur cette période.</div>;
+
+  return (
+    <div>
+      {/* Total + type pills */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <span style={{fontSize:22,fontWeight:700,color:C.accent}}>{fmtMin(total)}</span>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          {WP_TYPES.filter(t=>byType[t]).map(t=>{
+            const pct=Math.round(byType[t]/total*100);
+            return <span key={t} style={{fontSize:11,fontWeight:600,color:WP_TYPE_C[t],background:WP_TYPE_C[t]+"18",padding:"3px 9px",borderRadius:999}}>{t} {pct}%</span>;
+          })}
+        </div>
+      </div>
+
+      {/* Domaine breakdown */}
+      {domaines.map(d => {
+        const pct = Math.round(byDomaine[d]/total*100);
+        const open = expanded[d];
+        const ds = sessions.filter(s=>s.domaine===d).sort((a,b)=>b.date.localeCompare(a.date));
+        return (
+          <div key={d} style={{marginBottom:8}}>
+            <div onClick={()=>toggle(d)} style={{
+              background:C.surface2,border:`1px solid ${open?C.borderMid:C.border}`,borderRadius:open?"14px 14px 0 0":14,
+              padding:"12px 14px",cursor:"pointer",
+            }}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:7}}>
+                <span style={{fontSize:13,fontWeight:600,color:C.text,flex:1}}>{d}</span>
+                <span style={{fontSize:12,color:C.accent,fontWeight:700}}>{fmtMin(byDomaine[d])}</span>
+                <span style={{fontSize:12,color:C.muted,minWidth:34,textAlign:"right"}}>{pct}%</span>
+                <span style={{fontSize:11,color:C.muted,marginLeft:2}}>{open?"▲":"▼"}</span>
+              </div>
+              <div style={{height:5,borderRadius:999,background:C.surface3,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${pct}%`,background:C.accent,borderRadius:999,transition:"width 0.4s ease"}} />
+              </div>
+            </div>
+            {open && (
+              <div style={{background:C.surface,border:`1px solid ${C.borderMid}`,borderTop:"none",borderRadius:"0 0 14px 14px",padding:"8px 8px 4px"}}>
+                {ds.map(s=>(
+                  <div key={s.id}>
+                    <div style={{fontSize:10,color:C.muted,paddingLeft:8,paddingTop:4,paddingBottom:2}}>{fmtDate(s.date)}</div>
+                    <WPCard s={s} onDelete={onDelete} onEdit={onEdit} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
   const [sessions, setSessions] = useState(() => getLS("lp_workperf", []));
   const [view, setView] = useState("today");
@@ -2921,14 +3010,13 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
   const del  = id => save(sessions.filter(s=>s.id!==id));
   const edit = (id, patch) => save(sessions.map(s=>s.id===id?{...s,...patch}:s));
   const t=todayStr();
+  const currentMonth=t.slice(0,7); // "YYYY-MM"
   const todaySessions=sessions.filter(s=>s.date===t);
+  const weekSessions=sessions.filter(s=>weekDates().includes(s.date));
+  const monthSessions=sessions.filter(s=>s.date.startsWith(currentMonth));
   const totalToday=todaySessions.reduce((a,s)=>a+s.temps,0);
   const deepToday=todaySessions.filter(s=>s.type==="DEEP").reduce((a,s)=>a+s.temps,0);
-  const weekTotal=sessions.filter(s=>weekDates().includes(s.date)).reduce((a,s)=>a+s.temps,0);
-  const byDate=sessions.reduce((acc,s)=>{(acc[s.date]??=[]).push(s);return acc;},{});
-  const sortedDates=Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
-  const byDomaine=sessions.reduce((acc,s)=>{acc[s.domaine]=(acc[s.domaine]||0)+s.temps;return acc;},{});
-  const deepPct = totalToday>0 ? Math.round(deepToday/totalToday*100) : 0;
+  const weekTotal=weekSessions.reduce((a,s)=>a+s.temps,0);
   return (
     <div>
       <PageHeader title="⏱️️ WorkPerf"
@@ -2938,18 +3026,20 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
       {showLive && <LiveStartForm onClose={()=>setShowLive(false)} onLaunch={(name,cat)=>{onSessionStart({name,category:cat,startTime:Date.now()});}} />}
       <div style={{padding:"16px 16px 100px"}}>
         {/* KPIs */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
-          {[
-            {val:fmtMin(totalToday)||"—",label:"Total auj.",c:C.accent},
-            {val:fmtMin(deepToday)||"—",label:"DEEP auj.",c:C.purple},
-            {val:fmtMin(weekTotal)||"—",label:"Semaine",c:C.blue},
-          ].map(({val,label,c})=>(
-            <div key={label} style={{background:C.surface2,border:`1px solid ${C.border}`,borderTop:`2px solid ${c}`,borderRadius:16,padding:"14px 10px",textAlign:"center"}}>
-              <div style={{fontSize:20,fontWeight:700,color:c,lineHeight:1}}>{val}</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:5}}>{label}</div>
-            </div>
-          ))}
-        </div>
+        {view==="today" && (
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
+            {[
+              {val:fmtMin(totalToday)||"—",label:"Total auj.",c:C.accent},
+              {val:fmtMin(deepToday)||"—",label:"DEEP auj.",c:C.purple},
+              {val:fmtMin(weekTotal)||"—",label:"Semaine",c:C.blue},
+            ].map(({val,label,c})=>(
+              <div key={label} style={{background:C.surface2,border:`1px solid ${C.border}`,borderTop:`2px solid ${c}`,borderRadius:16,padding:"14px 10px",textAlign:"center"}}>
+                <div style={{fontSize:20,fontWeight:700,color:c,lineHeight:1}}>{val}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:5}}>{label}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Inline add form */}
         {showForm && (
@@ -2977,8 +3067,8 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
         )}
 
         {/* View tabs */}
-        <div style={{display:"flex",gap:6,marginBottom:16}}>
-          {[["today","Aujourd'hui"],["history","Historique"],["stats","Stats"]].map(([id,label])=>{
+        <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+          {[["today","Aujourd'hui"],["week","Cette semaine"],["month","Ce mois"]].map(([id,label])=>{
             const active=view===id;
             return <button key={id} onClick={()=>setView(id)} style={{padding:"8px 18px",borderRadius:999,border:`1px solid ${active?C.accent:C.border}`,background:active?C.accentBg:C.surface2,color:active?C.accent:C.muted,cursor:"pointer",fontSize:13,fontFamily:"inherit",fontWeight:active?600:400}}>{label}</button>;
           })}
@@ -2989,41 +3079,9 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
           : todaySessions.map(s=><WPCard key={s.id} s={s} onDelete={del} onEdit={edit} />)
         )}
 
-        {view==="history" && (sortedDates.length===0
-          ? <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucune session.</div>
-          : sortedDates.map(date=>{
-              const ds=byDate[date], dayTotal=ds.reduce((a,s)=>a+s.temps,0);
-              return (
-                <div key={date} style={{marginBottom:20}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <span style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>{fmtDate(date)}</span>
-                    <span style={{fontSize:13,color:C.accent,fontWeight:700}}>{fmtMin(dayTotal)}</span>
-                  </div>
-                  {ds.map(s=><WPCard key={s.id} s={s} onDelete={del} onEdit={edit} />)}
-                </div>
-              );
-            })
-        )}
+        {view==="week" && <WPReview sessions={weekSessions} onDelete={del} onEdit={edit} />}
 
-        {view==="stats" && (
-          <div>
-            <div style={{fontSize:11,color:C.muted,marginBottom:14,textTransform:"uppercase",letterSpacing:"0.08em"}}>Temps total par domaine</div>
-            {WP_DOMAINES.filter(d=>byDomaine[d]).sort((a,b)=>byDomaine[b]-byDomaine[a]).map(d=>{
-              const total=byDomaine[d];
-              const maxVal=Math.max(...Object.values(byDomaine));
-              return (
-                <div key={d} style={{marginBottom:12}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                    <span style={{fontSize:13,color:C.text}}>{d}</span>
-                    <span style={{fontSize:13,color:C.accent,fontWeight:700}}>{fmtMin(total)}</span>
-                  </div>
-                  <ProgressBar value={total/maxVal*100} height={5} />
-                </div>
-              );
-            })}
-            {Object.keys(byDomaine).length===0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucune donnée.</div>}
-          </div>
-        )}
+        {view==="month" && <WPReview sessions={monthSessions} onDelete={del} onEdit={edit} />}
       </div>
     </div>
   );
@@ -4411,6 +4469,28 @@ export default function App({ session, signOut }) {
     localStorage.setItem(LS_SESSION_KEY, JSON.stringify(s));
     setActiveSession(s);
   };
+  const handleSessionPause = useCallback(() => {
+    const raw = localStorage.getItem(LS_SESSION_KEY);
+    if (!raw) return;
+    try {
+      const s = JSON.parse(raw);
+      if (s.pausedAt) return;
+      const updated = { ...s, pausedAt: Date.now() };
+      localStorage.setItem(LS_SESSION_KEY, JSON.stringify(updated));
+      setActiveSession(updated);
+    } catch {}
+  }, []);
+  const handleSessionResume = useCallback(() => {
+    const raw = localStorage.getItem(LS_SESSION_KEY);
+    if (!raw) return;
+    try {
+      const s = JSON.parse(raw);
+      if (!s.pausedAt) return;
+      const updated = { ...s, totalPausedMs: (s.totalPausedMs||0) + (Date.now() - s.pausedAt), pausedAt: null };
+      localStorage.setItem(LS_SESSION_KEY, JSON.stringify(updated));
+      setActiveSession(updated);
+    } catch {}
+  }, []);
   const handleSessionStop = useCallback((elapsed) => {
     setStopModal({ elapsed: elapsed ?? 0 });
   }, []);
@@ -4418,10 +4498,11 @@ export default function App({ session, signOut }) {
     const raw = localStorage.getItem(LS_SESSION_KEY);
     if (raw) {
       try {
-        const { name, category, startTime } = JSON.parse(raw);
-        const durationMinutes = Math.round((Date.now() - startTime) / 60000) || 1;
+        const { name, category, startTime, pausedAt, totalPausedMs=0 } = JSON.parse(raw);
+        const effectiveEnd = pausedAt || Date.now();
+        const durationMinutes = Math.round((effectiveEnd - startTime - totalPausedMs) / 60000) || 1;
         const sessions = getLS("lp_workperf", []);
-        setLS("lp_workperf", [...sessions, {id:uid(),tache:name,date:todayStr(),temps:durationMinutes,type,domaine:category,efficience,startTime:new Date(startTime).toISOString(),endTime:new Date().toISOString()}]);
+        setLS("lp_workperf", [...sessions, {id:uid(),tache:name,date:todayStr(),temps:durationMinutes,type,domaine:category,efficience,startTime:new Date(startTime).toISOString(),endTime:new Date(effectiveEnd).toISOString()}]);
       } catch {}
     }
     localStorage.removeItem(LS_SESSION_KEY);
@@ -4456,8 +4537,9 @@ export default function App({ session, signOut }) {
         {module === "workperf"  && <WorkPerfModule activeSession={activeSession} onSessionStart={handleSessionStart} onSessionStop={handleSessionStop} />}
         {module === "daily"     && <DailyPaperModule />}
         {module === "todo"      && <TodoModule />}
+        {module === "base"      && <BaseModule userId={session?.user?.id ?? null} />}
       </div>
-      <ActiveSessionWidget session={activeSession} onStop={handleSessionStop} />
+      <ActiveSessionWidget session={activeSession} onStop={handleSessionStop} onPause={handleSessionPause} onResume={handleSessionResume} />
       {stopModal && <LiveStopModal session={activeSession} elapsed={stopModal.elapsed} onConfirm={handleConfirmStop} onCancel={()=>setStopModal(null)} />}
       <BottomNav current={module} onNav={setModule} mobile={mobile} onPerso={()=>setShowPerso(true)} />
       {showPerso && <PersonalisationModal onClose={()=>setShowPerso(false)} onSave={handleSavePerso} />}
