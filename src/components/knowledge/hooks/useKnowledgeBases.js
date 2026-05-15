@@ -7,13 +7,18 @@ export function useKnowledgeBases(userId) {
 
   const fetch = useCallback(async () => {
     if (!userId) return;
-    const { data } = await supabase
-      .from("knowledge_bases")
-      .select("*")
-      .eq("owner_id", userId)
-      .eq("is_archived", false)
-      .order("position");
-    setBases(data || []);
+    const [{ data: basesData }, { data: memberships }] = await Promise.all([
+      supabase.from("knowledge_bases").select("*").eq("is_archived", false).order("position"),
+      supabase.from("knowledge_base_members").select("base_id, role").eq("user_id", userId),
+    ]);
+    const memberMap = {};
+    (memberships || []).forEach(m => { memberMap[m.base_id] = m.role; });
+    const annotated = (basesData || []).map(b => ({
+      ...b,
+      _isOwner: b.owner_id === userId,
+      _role: b.owner_id === userId ? "owner" : (memberMap[b.id] || "viewer"),
+    }));
+    setBases(annotated);
     setLoading(false);
   }, [userId]);
 

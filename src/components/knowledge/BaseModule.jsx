@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense, lazy } from "react";
 import { supabase } from "../../supabase";
 import { useKnowledgeBases } from "./hooks/useKnowledgeBases";
+import { useShareBase } from "./hooks/useShareBase";
 import {
   useBasePages, useKnowledgePage, useBacklinks,
   syncWikilinks, usePageSearch, useGraphData,
@@ -781,7 +782,7 @@ function PageView({ pageId, userId, onBack, breadcrumb, allPages, onPageNav, onA
 }
 
 // ─── BASE VIEW ────────────────────────────────────────────────────────────────
-function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, onCreateSubBase, onArchiveBase, allBases }) {
+function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, onCreateSubBase, onArchiveBase, allBases, memberRole = "owner" }) {
   const { pages, loading, createPage, archivePage } = useBasePages(base.id, userId);
   const { results, search, clear } = usePageSearch(userId);
   const [searchQ, setSearchQ] = useState("");
@@ -790,6 +791,9 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [expandedPages, setExpandedPages] = useState({});
   const [showCreateSub, setShowCreateSub] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const canWrite = memberRole !== "viewer";
+  const isOwner = memberRole === "owner";
   const subBases = (allBases || []).filter(b => b.parent_id === base.id);
 
   const rootPages = pages.filter(p => !p.parent_id);
@@ -821,7 +825,7 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
             {p.page_type === "source" && <span style={{ fontSize: 10, color: C.blue, background: C.blueBg, padding: "2px 7px", borderRadius: 999 }}>source</span>}
             {children.length > 0 && <span style={{ fontSize: 11, color: C.faint }}>({children.length})</span>}
           </span>
-          <span onClick={e => { e.stopPropagation(); archivePage(p.id); }} style={{ fontSize: 14, color: C.red, cursor: "pointer", padding: "2px 6px", flexShrink: 0 }} title="Supprimer">🗑</span>
+          {canWrite && <span onClick={e => { e.stopPropagation(); archivePage(p.id); }} style={{ fontSize: 14, color: C.red, cursor: "pointer", padding: "2px 6px", flexShrink: 0 }} title="Supprimer">🗑</span>}
         </div>
         {expanded && children.map(c => renderPageRow(c, depth + 1))}
       </div>
@@ -838,13 +842,21 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
             <span onClick={() => setEmojiOpen(o => !o)} style={{ fontSize: 22, cursor: "pointer" }}>{base.emoji}</span>
             {emojiOpen && <EmojiPicker onSelect={e => onBaseUpdate(base.id, { emoji: e })} onClose={() => setEmojiOpen(false)} />}
           </div>
-          <input value={base.name} onChange={e => onBaseUpdate(base.id, { name: e.target.value })}
+          <input value={base.name}
+            onChange={e => isOwner && onBaseUpdate(base.id, { name: e.target.value })}
+            readOnly={!isOwner}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: C.text, fontSize: 16, fontWeight: 700, fontFamily: "inherit" }} />
-          <button onClick={async () => {
-            if (!window.confirm(`Supprimer "${base.name}" ?`)) return;
-            await onArchiveBase(base.id);
-            onBack();
-          }} style={{ background: "none", border: "none", color: C.red, fontSize: 16, cursor: "pointer", padding: "0 4px" }} title="Supprimer cette base">🗑</button>
+          {isOwner && (
+            <button onClick={() => setShowShare(true)}
+              style={{ background: "none", border: "none", color: C.muted, fontSize: 16, cursor: "pointer", padding: "0 4px" }} title="Partager">👥</button>
+          )}
+          {isOwner && (
+            <button onClick={async () => {
+              if (!window.confirm(`Supprimer "${base.name}" ?`)) return;
+              await onArchiveBase(base.id);
+              onBack();
+            }} style={{ background: "none", border: "none", color: C.red, fontSize: 16, cursor: "pointer", padding: "0 4px" }} title="Supprimer cette base">🗑</button>
+          )}
         </div>
         {/* Search */}
         <div style={{ marginTop: 10, position: "relative" }}>
@@ -861,10 +873,12 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <span style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Sous-bases</span>
-              <button onClick={() => setShowCreateSub(true)}
-                style={{ background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
-                + Sous-base
-              </button>
+              {isOwner && (
+                <button onClick={() => setShowCreateSub(true)}
+                  style={{ background: "none", border: "none", color: C.accent, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+                  + Sous-base
+                </button>
+              )}
             </div>
             {subBases.length === 0
               ? <div style={{ fontSize: 12, color: C.faint, padding: "8px 0" }}>Aucune sous-base.</div>
@@ -929,7 +943,7 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
           </div>
         )}
 
-        {!creating && (
+        {!creating && canWrite && (
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button onClick={() => setCreating("note")}
               style={{ flex: 1, background: C.surface2, border: `1px dashed ${C.border}`, color: C.muted, padding: "11px", borderRadius: 12, fontSize: 13, cursor: "pointer", fontFamily: "inherit", transition: TR }}
@@ -957,6 +971,7 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
           }}
         />
       )}
+      {showShare && <ShareModal base={base} userId={userId} onClose={() => setShowShare(false)} />}
     </div>
   );
 }
@@ -1110,6 +1125,75 @@ function CreateBaseModal({ onClose, onCreate, parentBase = null }) {
   );
 }
 
+// ─── SHARE MODAL ─────────────────────────────────────────────────────────────
+function ShareModal({ base, userId, onClose }) {
+  const { members, addMember, removeMember, updateRole } = useShareBase(base.id, userId);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("viewer");
+  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const handleAdd = async () => {
+    if (!email.trim()) return;
+    setAdding(true); setError("");
+    const result = await addMember(email, role);
+    if (result.error) setError(result.error);
+    else setEmail("");
+    setAdding(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} />
+      <div style={{ position: "relative", width: "min(440px,100%)", background: C.surface, borderRadius: 24, border: `1px solid ${C.borderMid}`, padding: 24 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>
+          Partager · {base.emoji} {base.name}
+        </div>
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 20 }}>Inviter par email</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+          <input
+            value={email} onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleAdd()}
+            placeholder="email@exemple.com"
+            style={{ flex: 1, background: C.surface2, border: `1px solid ${C.border}`, color: C.text, padding: "9px 12px", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none" }}
+          />
+          <select value={role} onChange={e => setRole(e.target.value)}
+            style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text, padding: "9px 10px", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none" }}>
+            <option value="viewer">Lecture</option>
+            <option value="editor">Éditeur</option>
+          </select>
+          <button onClick={handleAdd} disabled={adding || !email.trim()}
+            style={{ background: GRAD, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", opacity: (!email.trim() || adding) ? 0.5 : 1 }}>
+            Inviter
+          </button>
+        </div>
+        {error && <div style={{ fontSize: 12, color: C.red, marginBottom: 8 }}>{error}</div>}
+        {members.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>Membres</div>
+            {members.map(m => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ flex: 1, fontSize: 13, color: C.text }}>{m.profiles?.email || m.user_id}</div>
+                <select value={m.role} onChange={e => updateRole(m.id, e.target.value)}
+                  style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text, padding: "4px 8px", borderRadius: 8, fontSize: 12, fontFamily: "inherit", outline: "none" }}>
+                  <option value="viewer">Lecture</option>
+                  <option value="editor">Éditeur</option>
+                </select>
+                <button onClick={() => removeMember(m.id)}
+                  style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button onClick={onClose}
+          style={{ width: "100%", background: C.surface2, border: `1px solid ${C.border}`, color: C.muted, padding: "10px", borderRadius: 12, fontSize: 13, cursor: "pointer", fontFamily: "inherit", marginTop: 20 }}>
+          Fermer
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── BASE HOME ────────────────────────────────────────────────────────────────
 const LS_RECENT = "lp_base_recent";
 
@@ -1185,10 +1269,17 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
               </>
             )}
           </span>
-          <div className="base-actions" style={{ display: "flex", gap: 4, opacity: 0, transition: TR }} onClick={e => e.stopPropagation()}>
-            <span onClick={e => startEdit(e, base)} style={{ fontSize: 11, color: C.muted, cursor: "pointer", padding: "2px 6px", borderRadius: 6 }} title="Renommer">✏️</span>
-            <span onClick={e => handleDelete(e, base)} style={{ fontSize: 11, color: C.red, cursor: "pointer", padding: "2px 6px", borderRadius: 6 }} title="Supprimer">🗑</span>
-          </div>
+          {base._isOwner && (
+            <div className="base-actions" style={{ display: "flex", gap: 4, opacity: 0, transition: TR }} onClick={e => e.stopPropagation()}>
+              <span onClick={e => startEdit(e, base)} style={{ fontSize: 11, color: C.muted, cursor: "pointer", padding: "2px 6px", borderRadius: 6 }} title="Renommer">✏️</span>
+              <span onClick={e => handleDelete(e, base)} style={{ fontSize: 11, color: C.red, cursor: "pointer", padding: "2px 6px", borderRadius: 6 }} title="Supprimer">🗑</span>
+            </div>
+          )}
+          {!base._isOwner && (
+            <span style={{ fontSize: 10, color: C.muted, background: C.surface3, padding: "2px 8px", borderRadius: 999 }}>
+              {base._role === "editor" ? "Éditeur" : "Lecture"}
+            </span>
+          )}
         </div>
         {isExpanded && children.map(c => renderBaseTree(c, depth + 1))}
       </div>
@@ -1208,10 +1299,17 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
 
         {loading
           ? <div style={{ color: C.muted, textAlign: "center", padding: 32 }}>Chargement…</div>
-          : rootBases.length === 0
+          : rootBases.filter(b => b._isOwner).length === 0
             ? <div style={{ color: C.muted, textAlign: "center", padding: 32, fontSize: 13 }}>Aucune base. Créez-en une !</div>
-            : rootBases.map(b => renderBaseTree(b))
+            : rootBases.filter(b => b._isOwner).map(b => renderBaseTree(b))
         }
+
+        {!loading && rootBases.filter(b => !b._isOwner).length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Partagées avec moi</div>
+            {rootBases.filter(b => !b._isOwner).map(b => renderBaseTree(b))}
+          </div>
+        )}
 
         <button onClick={() => setShowCreate(true)}
           style={{ width: "100%", background: C.surface2, border: `1px dashed ${C.border}`, color: C.muted, padding: "12px", borderRadius: 14, fontSize: 13, cursor: "pointer", fontFamily: "inherit", marginTop: 8, marginBottom: 24, transition: TR }}
@@ -1342,6 +1440,7 @@ export default function BaseModule({ userId }) {
           onCreateSubBase={createBase}
           onArchiveBase={archiveBase}
           allBases={bases}
+          memberRole={currentBase._role || "owner"}
         />
       )}
 
