@@ -7,18 +7,24 @@ export function useKnowledgeBases(userId) {
 
   const fetch = useCallback(async () => {
     if (!userId) return;
-    const [{ data: basesData }, { data: memberships }] = await Promise.all([
-      supabase.from("knowledge_bases").select("*").eq("is_archived", false).order("position"),
+    const [{ data: ownedData }, { data: memberships }] = await Promise.all([
+      supabase.from("knowledge_bases").select("*").eq("owner_id", userId).eq("is_archived", false).order("position"),
       supabase.from("knowledge_base_members").select("base_id, role").eq("user_id", userId),
     ]);
     const memberMap = {};
     (memberships || []).forEach(m => { memberMap[m.base_id] = m.role; });
-    const annotated = (basesData || []).map(b => ({
-      ...b,
-      _isOwner: b.owner_id === userId,
-      _role: b.owner_id === userId ? "owner" : (memberMap[b.id] || "viewer"),
-    }));
-    setBases(annotated);
+    const ownedIds = new Set((ownedData || []).map(b => b.id));
+    const sharedIds = Object.keys(memberMap).filter(id => !ownedIds.has(id));
+    let sharedData = [];
+    if (sharedIds.length > 0) {
+      const { data } = await supabase.from("knowledge_bases").select("*").in("id", sharedIds).eq("is_archived", false);
+      sharedData = data || [];
+    }
+    const all = [
+      ...(ownedData || []).map(b => ({ ...b, _isOwner: true, _role: "owner" })),
+      ...sharedData.map(b => ({ ...b, _isOwner: false, _role: memberMap[b.id] || "viewer" })),
+    ];
+    setBases(all);
     setLoading(false);
   }, [userId]);
 
