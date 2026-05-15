@@ -41,17 +41,22 @@ export function useShareBase(baseId, userId) {
       return { error: error.message };
     }
     await fetchMembers();
+    window.dispatchEvent(new CustomEvent("bases-share-changed"));
     return { success: true };
   };
 
   const removeMember = async (memberId) => {
-    await supabase.from("knowledge_base_members").delete().eq("id", memberId);
+    const { error } = await supabase.from("knowledge_base_members").delete().eq("id", memberId);
+    if (error) { console.error("removeMember error:", error); return; }
     setMembers(m => m.filter(x => x.id !== memberId));
+    window.dispatchEvent(new CustomEvent("bases-share-changed"));
   };
 
   const updateRole = async (memberId, role) => {
-    await supabase.from("knowledge_base_members").update({ role }).eq("id", memberId);
+    const { error } = await supabase.from("knowledge_base_members").update({ role }).eq("id", memberId);
+    if (error) { console.error("updateRole error:", error); return; }
     setMembers(m => m.map(x => x.id === memberId ? { ...x, role } : x));
+    window.dispatchEvent(new CustomEvent("bases-share-changed"));
   };
 
   return { members, addMember, removeMember, updateRole };

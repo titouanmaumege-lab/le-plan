@@ -56,6 +56,12 @@ export function useKnowledgeBases(userId) {
 
   useEffect(() => { fetch(); }, [fetch]);
 
+  useEffect(() => {
+    const handler = () => fetch();
+    window.addEventListener("bases-share-changed", handler);
+    return () => window.removeEventListener("bases-share-changed", handler);
+  }, [fetch]);
+
   const createBase = async ({ name, emoji = "📚", color = "#3b82f6", parent_id = null }) => {
     const siblings = bases.filter(b => b.parent_id === parent_id);
     const { data, error } = await supabase.from("knowledge_bases").insert({
