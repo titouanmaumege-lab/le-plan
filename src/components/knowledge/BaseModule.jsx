@@ -794,6 +794,8 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
   const [showShare, setShowShare] = useState(false);
   const canWrite = memberRole !== "viewer";
   const isOwner = memberRole === "owner";
+  const { members } = useShareBase(base.id, userId);
+  const roleLabel = { viewer: "Lecture", editor: "Éditeur" };
   const subBases = (allBases || []).filter(b => b.parent_id === base.id);
 
   const rootPages = pages.filter(p => !p.parent_id);
@@ -858,6 +860,22 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
             }} style={{ background: "none", border: "none", color: C.red, fontSize: 16, cursor: "pointer", padding: "0 4px" }} title="Supprimer cette base">🗑</button>
           )}
         </div>
+        {/* Membres partagés */}
+        {isOwner && members.length > 0 && (
+          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            {members.map(m => {
+              const email = m.profiles?.email || "";
+              const initials = email.slice(0, 2).toUpperCase() || "?";
+              return (
+                <span key={m.id} style={{ display: "flex", alignItems: "center", gap: 5, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 999, padding: "3px 10px 3px 4px", fontSize: 11 }}>
+                  <span style={{ width: 20, height: 20, borderRadius: "50%", background: C.accentBg, border: `1px solid ${C.borderMid}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: C.accent, fontWeight: 700 }}>{initials}</span>
+                  <span style={{ color: C.text }}>{email}</span>
+                  <span style={{ color: m.role === "editor" ? C.amber : C.muted }}>· {roleLabel[m.role]}</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
         {/* Search */}
         <div style={{ marginTop: 10, position: "relative" }}>
           <input value={searchQ} onChange={e => { setSearchQ(e.target.value); search(e.target.value, base.id); }}
@@ -1131,14 +1149,20 @@ function ShareModal({ base, userId, onClose }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("viewer");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [adding, setAdding] = useState(false);
 
   const handleAdd = async () => {
     if (!email.trim()) return;
-    setAdding(true); setError("");
+    setAdding(true); setError(""); setSuccess("");
+    const sentTo = email.trim();
     const result = await addMember(email, role);
-    if (result.error) setError(result.error);
-    else setEmail("");
+    if (result.error) { setError(result.error); }
+    else {
+      setEmail("");
+      setSuccess(`✓ Invitation envoyée à ${sentTo}`);
+      setTimeout(() => setSuccess(""), 4000);
+    }
     setAdding(false);
   };
 
@@ -1168,6 +1192,7 @@ function ShareModal({ base, userId, onClose }) {
           </button>
         </div>
         {error && <div style={{ fontSize: 12, color: C.red, marginBottom: 8 }}>{error}</div>}
+        {success && <div style={{ fontSize: 12, color: C.green, marginBottom: 8 }}>{success}</div>}
         {members.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>Membres</div>
