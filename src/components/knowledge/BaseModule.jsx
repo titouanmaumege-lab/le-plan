@@ -1424,6 +1424,8 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
 }
 
 // ─── BASE MODULE (router) ─────────────────────────────────────────────────────
+const LS_NAV = "lp_nav_state";
+
 export default function BaseModule({ userId }) {
   const [view, setView] = useState("home"); // "home" | "base" | "page" | "graph"
   const [currentBase, setCurrentBase] = useState(null);
@@ -1431,6 +1433,7 @@ export default function BaseModule({ userId }) {
   const [breadcrumb, setBreadcrumb] = useState([]);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [allPages, setAllPages] = useState([]);
+  const navRestored = useRef(false);
   const { bases, updateBase, createBase, archiveBase } = useKnowledgeBases(userId);
 
   useEffect(() => {
@@ -1441,6 +1444,31 @@ export default function BaseModule({ userId }) {
       .eq("owner_id", userId)
       .then(({ data }) => setAllPages(data || []));
   }, [userId, view]);
+
+  // Sauvegarde position de navigation
+  useEffect(() => {
+    if (!userId) return;
+    let state = { view: "home" };
+    if (view === "base" && currentBase) state = { view: "base", baseId: currentBase.id };
+    else if (view === "page" && currentPage) state = { view: "page", pageId: currentPage.id };
+    localStorage.setItem(`${LS_NAV}_${userId}`, JSON.stringify(state));
+  }, [view, currentBase, currentPage, userId]);
+
+  // Restaure position au mount
+  useEffect(() => {
+    if (!userId || navRestored.current) return;
+    navRestored.current = true;
+    try {
+      const saved = JSON.parse(localStorage.getItem(`${LS_NAV}_${userId}`) || "{}");
+      if (saved.view === "page" && saved.pageId) {
+        supabase.from("knowledge_pages").select("*, knowledge_bases(*)").eq("id", saved.pageId).single()
+          .then(({ data: p }) => { if (p) { setCurrentPage(p); setCurrentBase(p.knowledge_bases); setBreadcrumb([p.knowledge_bases?.name, p.title]); setView("page"); } });
+      } else if (saved.view === "base" && saved.baseId) {
+        supabase.from("knowledge_bases").select("*").eq("id", saved.baseId).single()
+          .then(({ data: b }) => { if (b) { setCurrentBase(b); setBreadcrumb([b.name]); setView("base"); } });
+      }
+    } catch {}
+  }, [userId]);
 
   const openBase = (base) => {
     setCurrentBase(base);
