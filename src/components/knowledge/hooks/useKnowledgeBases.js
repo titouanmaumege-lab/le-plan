@@ -13,16 +13,33 @@ export function useKnowledgeBases(userId) {
     ]);
     const memberMap = {};
     (memberships || []).forEach(m => { memberMap[m.base_id] = m.role; });
-    const ownedIds = [...(ownedData || []).map(b => b.id)];
-    const sharedIds = Object.keys(memberMap).filter(id => !ownedIds.includes(id));
+    const ownedIds = new Set((ownedData || []).map(b => b.id));
+    const directSharedIds = Object.keys(memberMap).filter(id => !ownedIds.has(id));
 
-    // Fetch shared bases + which of my owned bases have members, in parallel
+    // Récursivement expand les sous-bases des bases partagées
+    const roleMap = { ...memberMap };
+    let allSharedIds = [...directSharedIds];
+    let frontier = [...directSharedIds];
+    while (frontier.length > 0) {
+      const { data: children } = await supabase
+        .from("knowledge_bases").select("id, parent_id")
+        .in("parent_id", frontier).eq("is_archived", false);
+      const newItems = (children || []).filter(c => !allSharedIds.includes(c.id) && !ownedIds.has(c.id));
+      if (newItems.length === 0) break;
+      newItems.forEach(c => { roleMap[c.id] = roleMap[c.parent_id] || "viewer"; });
+      const newIds = newItems.map(c => c.id);
+      allSharedIds.push(...newIds);
+      frontier = newIds;
+    }
+
+    // Fetch toutes les bases partagées (directes + descendants) + _isShared pour owned, en parallèle
+    const ownedIdsArr = [...ownedIds];
     const [sharedResult, myMembersResult] = await Promise.all([
-      sharedIds.length > 0
-        ? supabase.from("knowledge_bases").select("*").in("id", sharedIds).eq("is_archived", false)
+      allSharedIds.length > 0
+        ? supabase.from("knowledge_bases").select("*").in("id", allSharedIds).eq("is_archived", false)
         : { data: [] },
-      ownedIds.length > 0
-        ? supabase.from("knowledge_base_members").select("base_id").in("base_id", ownedIds)
+      ownedIdsArr.length > 0
+        ? supabase.from("knowledge_base_members").select("base_id").in("base_id", ownedIdsArr)
         : { data: [] },
     ]);
 
@@ -31,7 +48,7 @@ export function useKnowledgeBases(userId) {
 
     const all = [
       ...(ownedData || []).map(b => ({ ...b, _isOwner: true, _role: "owner", _isShared: sharedOwnedIds.has(b.id) })),
-      ...sharedData.map(b => ({ ...b, _isOwner: false, _role: memberMap[b.id] || "viewer", _isShared: false })),
+      ...sharedData.map(b => ({ ...b, _isOwner: false, _role: roleMap[b.id] || "viewer", _isShared: false })),
     ];
     setBases(all);
     setLoading(false);
