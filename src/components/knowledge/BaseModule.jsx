@@ -1223,14 +1223,29 @@ function ShareModal({ base, userId, onClose }) {
 const LS_RECENT = "lp_base_recent";
 
 function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }) {
-  const { rootBases, childrenOf, loading, createBase, archiveBase, updateBase } = useKnowledgeBases(userId);
+  const { bases, rootBases, childrenOf, loading, createBase, archiveBase, updateBase } = useKnowledgeBases(userId);
   const [showCreate, setShowCreate] = useState(false);
   const [expanded, setExpanded] = useState({});
   const [editingId, setEditingId] = useState(null);
   const [editingName, setEditingName] = useState("");
+  const [activeTab, setActiveTab] = useState("mine");
+  const [seenIds, setSeenIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("lp_seen_shared") || "[]")); } catch { return new Set(); }
+  });
   const [recent, setRecent] = useState(() => {
     try { return JSON.parse(localStorage.getItem(LS_RECENT) || "[]"); } catch { return []; }
   });
+
+  const myRootBases = rootBases.filter(b => b._isOwner);
+  const sharedBases = bases.filter(b => !b._isOwner);
+  const newSharedCount = sharedBases.filter(b => !seenIds.has(b.id)).length;
+
+  const handleSharedTab = () => {
+    setActiveTab("shared");
+    const updated = new Set([...seenIds, ...sharedBases.map(b => b.id)]);
+    setSeenIds(updated);
+    localStorage.setItem("lp_seen_shared", JSON.stringify([...updated]));
+  };
 
   const handleCreate = async (data) => {
     const base = await createBase(data);
@@ -1311,54 +1326,77 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
     );
   };
 
+  const tabBtn = (label, tab, badge = 0, onClick) => {
+    const active = activeTab === tab;
+    return (
+      <button onClick={onClick || (() => setActiveTab(tab))}
+        style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 10, fontSize: 13, fontWeight: active ? 600 : 400, border: "none", cursor: "pointer", fontFamily: "inherit", background: active ? C.accentBg : "transparent", color: active ? C.accent : C.muted, transition: TR }}>
+        {label}
+        {badge > 0 && (
+          <span style={{ background: C.red, color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: "50%", width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{badge}</span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <div>
-      <div style={{ position: "sticky", top: 0, zIndex: 100, background: C.bg, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontSize: 18, fontWeight: 700, color: C.text, flex: 1 }}>Base</span>
-        <button onClick={onOpenSwitcher} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>🔍</button>
-        <button onClick={onOpenGraph} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>⬡</button>
+      <div style={{ position: "sticky", top: 0, zIndex: 100, background: C.bg, borderBottom: `1px solid ${C.border}`, padding: "10px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+          <span style={{ fontSize: 18, fontWeight: 700, color: C.text, flex: 1 }}>Base</span>
+          <button onClick={onOpenSwitcher} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>🔍</button>
+          <button onClick={onOpenGraph} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>⬡</button>
+        </div>
+        <div style={{ display: "flex", gap: 2 }}>
+          {tabBtn("Mes bases", "mine")}
+          {tabBtn("Bases partagées", "shared", newSharedCount, handleSharedTab)}
+        </div>
       </div>
 
       <div style={{ padding: "16px 16px 100px" }}>
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Mes bases</div>
-
-        {loading
-          ? <div style={{ color: C.muted, textAlign: "center", padding: 32 }}>Chargement…</div>
-          : rootBases.filter(b => b._isOwner).length === 0
-            ? <div style={{ color: C.muted, textAlign: "center", padding: 32, fontSize: 13 }}>Aucune base. Créez-en une !</div>
-            : rootBases.filter(b => b._isOwner).map(b => renderBaseTree(b))
-        }
-
-        {!loading && rootBases.filter(b => !b._isOwner).length > 0 && (
-          <div style={{ marginTop: 24 }}>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Partagées avec moi</div>
-            {rootBases.filter(b => !b._isOwner).map(b => renderBaseTree(b))}
-          </div>
+        {activeTab === "mine" && (
+          <>
+            {loading
+              ? <div style={{ color: C.muted, textAlign: "center", padding: 32 }}>Chargement…</div>
+              : myRootBases.length === 0
+                ? <div style={{ color: C.muted, textAlign: "center", padding: 32, fontSize: 13 }}>Aucune base. Créez-en une !</div>
+                : myRootBases.map(b => renderBaseTree(b))
+            }
+            <button onClick={() => setShowCreate(true)}
+              style={{ width: "100%", background: C.surface2, border: `1px dashed ${C.border}`, color: C.muted, padding: "12px", borderRadius: 14, fontSize: 13, cursor: "pointer", fontFamily: "inherit", marginTop: 8, marginBottom: 24, transition: TR }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
+            >+ Nouvelle base</button>
+            {recent.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Récemment ouvertes</div>
+                {recent.slice(0, 5).map(r => (
+                  <div key={r.id} onClick={() => onPageNav(r.id)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, marginBottom: 4, background: C.surface2, cursor: "pointer", transition: TR }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.surface3}
+                    onMouseLeave={e => e.currentTarget.style.background = C.surface2}
+                  >
+                    <span style={{ fontSize: 18 }}>{r.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, color: C.text }}>{r.title}</div>
+                      <div style={{ fontSize: 11, color: C.muted }}>{r.baseName}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        <button onClick={() => setShowCreate(true)}
-          style={{ width: "100%", background: C.surface2, border: `1px dashed ${C.border}`, color: C.muted, padding: "12px", borderRadius: 14, fontSize: 13, cursor: "pointer", fontFamily: "inherit", marginTop: 8, marginBottom: 24, transition: TR }}
-          onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
-          onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
-        >+ Nouvelle base</button>
-
-        {recent.length > 0 && (
-          <div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Récemment ouvertes</div>
-            {recent.slice(0, 5).map(r => (
-              <div key={r.id} onClick={() => onPageNav(r.id)}
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, marginBottom: 4, background: C.surface2, cursor: "pointer", transition: TR }}
-                onMouseEnter={e => e.currentTarget.style.background = C.surface3}
-                onMouseLeave={e => e.currentTarget.style.background = C.surface2}
-              >
-                <span style={{ fontSize: 18 }}>{r.emoji}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, color: C.text }}>{r.title}</div>
-                  <div style={{ fontSize: 11, color: C.muted }}>{r.baseName}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+        {activeTab === "shared" && (
+          <>
+            {loading
+              ? <div style={{ color: C.muted, textAlign: "center", padding: 32 }}>Chargement…</div>
+              : sharedBases.length === 0
+                ? <div style={{ color: C.muted, textAlign: "center", padding: 48, fontSize: 13 }}>Aucune base partagée avec toi.</div>
+                : sharedBases.map(b => renderBaseTree(b))
+            }
+          </>
         )}
       </div>
 

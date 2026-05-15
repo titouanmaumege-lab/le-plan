@@ -6,11 +6,18 @@ export function useShareBase(baseId, userId) {
 
   const fetchMembers = useCallback(async () => {
     if (!baseId) return;
-    const { data } = await supabase
+    const { data: memberData } = await supabase
       .from("knowledge_base_members")
-      .select("id, user_id, role, profiles(email)")
+      .select("id, user_id, role")
       .eq("base_id", baseId);
-    setMembers(data || []);
+    const userIds = (memberData || []).map(m => m.user_id);
+    let profileMap = {};
+    if (userIds.length > 0) {
+      const { data: profileData } = await supabase
+        .from("profiles").select("id, email").in("id", userIds);
+      (profileData || []).forEach(p => { profileMap[p.id] = p; });
+    }
+    setMembers((memberData || []).map(m => ({ ...m, profiles: profileMap[m.user_id] || null })));
   }, [baseId]);
 
   useEffect(() => { fetchMembers(); }, [fetchMembers]);
